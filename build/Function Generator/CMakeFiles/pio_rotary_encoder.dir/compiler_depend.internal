@@ -1634,5 +1634,9 @@ Function Generator/CMakeFiles/pio_rotary_encoder.dir/pio_rotary_encoder.cpp.obj
  C:/Program Files (x86)/Pico/pico-sdk/src/rp2_common/hardware_irq/include/hardware/irq.h
  C:/Program Files (x86)/Pico/pico-sdk/src/rp2040/hardware_regs/include/hardware/regs/intctrl.h
  C:/Program Files (x86)/Pico/pico-sdk/src/rp2040/hardware_regs/include/hardware/regs/m0plus.h
+ C:/Program Files (x86)/Pico/pico-sdk/src/rp2_common/hardware_clocks/include/hardware/clocks.h
+ C:/Program Files (x86)/Pico/pico-sdk/src/rp2040/hardware_structs/include/hardware/structs/clocks.h
+ C:/Program Files (x86)/Pico/pico-sdk/src/rp2040/hardware_regs/include/hardware/regs/clocks.h
  C:/Program Files (x86)/Pico/RPI - pico/build/Function Generator/pio_rotary_encoder.pio.h
+ C:/Program Files (x86)/Pico/RPI - pico/build/Function Generator/pio_blink.pio.h
 

@@ -1633,7 +1633,11 @@
 "Function Generator\CMakeFiles\pio_rotary_encoder.dir\pio_rotary_encoder.cpp.obj": "C:\Program Files (x86)\Pico\pico-sdk\src\rp2_common\hardware_irq\include\hardware\irq.h"
 "Function Generator\CMakeFiles\pio_rotary_encoder.dir\pio_rotary_encoder.cpp.obj": "C:\Program Files (x86)\Pico\pico-sdk\src\rp2040\hardware_regs\include\hardware\regs\intctrl.h"
 "Function Generator\CMakeFiles\pio_rotary_encoder.dir\pio_rotary_encoder.cpp.obj": "C:\Program Files (x86)\Pico\pico-sdk\src\rp2040\hardware_regs\include\hardware\regs\m0plus.h"
+"Function Generator\CMakeFiles\pio_rotary_encoder.dir\pio_rotary_encoder.cpp.obj": "C:\Program Files (x86)\Pico\pico-sdk\src\rp2_common\hardware_clocks\include\hardware\clocks.h"
+"Function Generator\CMakeFiles\pio_rotary_encoder.dir\pio_rotary_encoder.cpp.obj": "C:\Program Files (x86)\Pico\pico-sdk\src\rp2040\hardware_structs\include\hardware\structs\clocks.h"
+"Function Generator\CMakeFiles\pio_rotary_encoder.dir\pio_rotary_encoder.cpp.obj": "C:\Program Files (x86)\Pico\pico-sdk\src\rp2040\hardware_regs\include\hardware\regs\clocks.h"
 "Function Generator\CMakeFiles\pio_rotary_encoder.dir\pio_rotary_encoder.cpp.obj": "Function Generator\pio_rotary_encoder.pio.h"
+"Function Generator\CMakeFiles\pio_rotary_encoder.dir\pio_rotary_encoder.cpp.obj": "Function Generator\pio_blink.pio.h"
 
 
 
@@ -1984,3 +1988,5 @@ generated\pico_base\pico\config_autogen.h:
 "C:\Program Files (x86)\Arm GNU Toolchain arm-none-eabi\11.2 2022.02\arm-none-eabi\include\c++\11.2.1\cassert":
 
 "Function Generator\pio_rotary_encoder.pio.h":
+
+"Function Generator\pio_blink.pio.h":

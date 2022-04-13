@@ -3,6 +3,7 @@
 eeb6c5e62aabb8fbe6848a5130b93cc2 Function Generator/CMakeFiles/ELF2UF2Build-complete
 478e69095729d1fb26673e08a7d74b38 Function Generator/CMakeFiles/PioasmBuild
 b82c2767cb02b557147b46b05a39eb9d Function Generator/CMakeFiles/PioasmBuild-complete
+478e69095729d1fb26673e08a7d74b38 Function Generator/CMakeFiles/pio_rotary_encoder_pio_blink_pio_h
 478e69095729d1fb26673e08a7d74b38 Function Generator/CMakeFiles/pio_rotary_encoder_pio_rotary_encoder_pio_h
 8e5ac8391769a88db46ec85f84f2f7a0 Function Generator/elf2uf2/src/ELF2UF2Build-stamp/ELF2UF2Build-build
 f7a8d795fdcaeea91c67375646bae9f7 Function Generator/elf2uf2/src/ELF2UF2Build-stamp/ELF2UF2Build-configure
@@ -11,6 +12,7 @@ f7a8d795fdcaeea91c67375646bae9f7 Function Generator/elf2uf2/src/ELF2UF2Build-sta
 ab7e05825fb477a5cf4327c90b06b223 Function Generator/elf2uf2/src/ELF2UF2Build-stamp/ELF2UF2Build-mkdir
 b255a1db26c067cde6663948b09a96e1 Function Generator/elf2uf2/src/ELF2UF2Build-stamp/ELF2UF2Build-patch
 5daf8be69530430101078d183400015b Function Generator/elf2uf2/src/ELF2UF2Build-stamp/ELF2UF2Build-update
+be76f0bc2721f06ceedf1143868a1656 Function Generator/pio_blink.pio.h
 914261654c4ed858da5a4559dfba6a17 Function Generator/pio_rotary_encoder.pio.h
 e42bf7eadd213a954ed47f165e2d2929 Function Generator/pioasm/src/PioasmBuild-stamp/PioasmBuild-build
 a26917770978ab34ef2a0f05e3707514 Function Generator/pioasm/src/PioasmBuild-stamp/PioasmBuild-configure

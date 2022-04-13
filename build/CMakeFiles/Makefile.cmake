@@ -231,6 +231,7 @@ set(CMAKE_DEPEND_INFO_FILES
   "pico-sdk/src/rp2_common/boot_stage2/CMakeFiles/bs2_default_padded_checksummed_asm.dir/DependInfo.cmake"
   "Function Generator/CMakeFiles/pio_rotary_encoder.dir/DependInfo.cmake"
   "Function Generator/CMakeFiles/PioasmBuild.dir/DependInfo.cmake"
+  "Function Generator/CMakeFiles/pio_rotary_encoder_pio_blink_pio_h.dir/DependInfo.cmake"
   "Function Generator/CMakeFiles/pio_rotary_encoder_pio_rotary_encoder_pio_h.dir/DependInfo.cmake"
   "Function Generator/CMakeFiles/ELF2UF2Build.dir/DependInfo.cmake"
   )

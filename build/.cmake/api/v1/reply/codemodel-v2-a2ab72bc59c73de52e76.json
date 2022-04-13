@@ -897,7 +897,8 @@
 						0,
 						1,
 						5,
-						6
+						6,
+						7
 					]
 				}
 			],
@@ -920,7 +921,8 @@
 						0,
 						1,
 						5,
-						6
+						6,
+						7
 					]
 				},
 				{
@@ -1012,14 +1014,14 @@
 				{
 					"directoryIndex" : 71,
 					"id" : "ELF2UF2Build::@ba6c46a00a1ee7b93f09",
-					"jsonFile" : "target-ELF2UF2Build-Debug-7039b4b2bed323695818.json",
+					"jsonFile" : "target-ELF2UF2Build-Debug-82cf47eaf4551bed9323.json",
 					"name" : "ELF2UF2Build",
 					"projectIndex" : 0
 				},
 				{
 					"directoryIndex" : 71,
 					"id" : "PioasmBuild::@ba6c46a00a1ee7b93f09",
-					"jsonFile" : "target-PioasmBuild-Debug-eb8f358d252935a80cd7.json",
+					"jsonFile" : "target-PioasmBuild-Debug-dcb4b196dc07c2b91bbd.json",
 					"name" : "PioasmBuild",
 					"projectIndex" : 0
 				},
@@ -1047,14 +1049,21 @@
 				{
 					"directoryIndex" : 71,
 					"id" : "pio_rotary_encoder::@ba6c46a00a1ee7b93f09",
-					"jsonFile" : "target-pio_rotary_encoder-Debug-25332e181f273c50792c.json",
+					"jsonFile" : "target-pio_rotary_encoder-Debug-94b982148884772bd821.json",
 					"name" : "pio_rotary_encoder",
 					"projectIndex" : 0
 				},
 				{
 					"directoryIndex" : 71,
+					"id" : "pio_rotary_encoder_pio_blink_pio_h::@ba6c46a00a1ee7b93f09",
+					"jsonFile" : "target-pio_rotary_encoder_pio_blink_pio_h-Debug-3b9837de1a707d78e0dd.json",
+					"name" : "pio_rotary_encoder_pio_blink_pio_h",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 71,
 					"id" : "pio_rotary_encoder_pio_rotary_encoder_pio_h::@ba6c46a00a1ee7b93f09",
-					"jsonFile" : "target-pio_rotary_encoder_pio_rotary_encoder_pio_h-Debug-5d051705dbc3d5d8a558.json",
+					"jsonFile" : "target-pio_rotary_encoder_pio_rotary_encoder_pio_h-Debug-0019f280b3b8bc9232ab.json",
 					"name" : "pio_rotary_encoder_pio_rotary_encoder_pio_h",
 					"projectIndex" : 0
 				}

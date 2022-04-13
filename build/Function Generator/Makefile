@@ -152,6 +152,24 @@ PioasmBuild\fast:
 .PHONY : PioasmBuild\fast
 
 # Convenience name for target.
+"Function Generator\CMakeFiles\pio_rotary_encoder_pio_blink_pio_h.dir\rule":
+	cd C:\PROGRA~2\Pico\RPI-PI~1\build
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\Makefile2 /nologo -$(MAKEFLAGS) "Function Generator\CMakeFiles\pio_rotary_encoder_pio_blink_pio_h.dir\rule"
+	cd C:\PROGRA~2\Pico\RPI-PI~1\build\FUNCTI~1
+.PHONY : "Function Generator\CMakeFiles\pio_rotary_encoder_pio_blink_pio_h.dir\rule"
+
+# Convenience name for target.
+pio_rotary_encoder_pio_blink_pio_h: "Function Generator\CMakeFiles\pio_rotary_encoder_pio_blink_pio_h.dir\rule"
+.PHONY : pio_rotary_encoder_pio_blink_pio_h
+
+# fast build rule for target.
+pio_rotary_encoder_pio_blink_pio_h\fast:
+	cd C:\PROGRA~2\Pico\RPI-PI~1\build
+	$(MAKE) $(MAKESILENT) -f "Function Generator\CMakeFiles\pio_rotary_encoder_pio_blink_pio_h.dir\build.make" /nologo -$(MAKEFLAGS) "Function Generator\CMakeFiles\pio_rotary_encoder_pio_blink_pio_h.dir\build"
+	cd C:\PROGRA~2\Pico\RPI-PI~1\build\FUNCTI~1
+.PHONY : pio_rotary_encoder_pio_blink_pio_h\fast
+
+# Convenience name for target.
 "Function Generator\CMakeFiles\pio_rotary_encoder_pio_rotary_encoder_pio_h.dir\rule":
 	cd C:\PROGRA~2\Pico\RPI-PI~1\build
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\Makefile2 /nologo -$(MAKEFLAGS) "Function Generator\CMakeFiles\pio_rotary_encoder_pio_rotary_encoder_pio_h.dir\rule"
@@ -1387,6 +1405,7 @@ help:
 	@echo ... rebuild_cache
 	@echo ... ELF2UF2Build
 	@echo ... PioasmBuild
+	@echo ... pio_rotary_encoder_pio_blink_pio_h
 	@echo ... pio_rotary_encoder_pio_rotary_encoder_pio_h
 	@echo ... pio_rotary_encoder
 	@echo ... C_/Program_Files_(x86)/Pico/pico-sdk/src/common/pico_sync/critical_section.obj

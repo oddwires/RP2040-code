@@ -145,6 +145,7 @@ C:/Program Files (x86)/Pico/RPI - pico/build/pico-sdk/docs/CMakeFiles/edit_cache
 C:/Program Files (x86)/Pico/RPI - pico/build/pico-sdk/docs/CMakeFiles/rebuild_cache.dir
 C:/Program Files (x86)/Pico/RPI - pico/build/Function Generator/CMakeFiles/pio_rotary_encoder.dir
 C:/Program Files (x86)/Pico/RPI - pico/build/Function Generator/CMakeFiles/PioasmBuild.dir
+C:/Program Files (x86)/Pico/RPI - pico/build/Function Generator/CMakeFiles/pio_rotary_encoder_pio_blink_pio_h.dir
 C:/Program Files (x86)/Pico/RPI - pico/build/Function Generator/CMakeFiles/pio_rotary_encoder_pio_rotary_encoder_pio_h.dir
 C:/Program Files (x86)/Pico/RPI - pico/build/Function Generator/CMakeFiles/ELF2UF2Build.dir
 C:/Program Files (x86)/Pico/RPI - pico/build/Function Generator/CMakeFiles/edit_cache.dir

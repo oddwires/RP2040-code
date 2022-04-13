@@ -171,6 +171,19 @@ PioasmBuild\fast:
 .PHONY : PioasmBuild\fast
 
 #=============================================================================
+# Target rules for targets named pio_rotary_encoder_pio_blink_pio_h
+
+# Build rule for target.
+pio_rotary_encoder_pio_blink_pio_h: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\Makefile2 /nologo -$(MAKEFLAGS) pio_rotary_encoder_pio_blink_pio_h
+.PHONY : pio_rotary_encoder_pio_blink_pio_h
+
+# fast build rule for target.
+pio_rotary_encoder_pio_blink_pio_h\fast:
+	$(MAKE) $(MAKESILENT) -f "Function Generator\CMakeFiles\pio_rotary_encoder_pio_blink_pio_h.dir\build.make" /nologo -$(MAKEFLAGS) "Function Generator\CMakeFiles\pio_rotary_encoder_pio_blink_pio_h.dir\build"
+.PHONY : pio_rotary_encoder_pio_blink_pio_h\fast
+
+#=============================================================================
 # Target rules for targets named pio_rotary_encoder_pio_rotary_encoder_pio_h
 
 # Build rule for target.
@@ -208,6 +221,7 @@ help:
 	@echo ... PioasmBuild
 	@echo ... bs2_default_bin
 	@echo ... bs2_default_padded_checksummed_asm
+	@echo ... pio_rotary_encoder_pio_blink_pio_h
 	@echo ... pio_rotary_encoder_pio_rotary_encoder_pio_h
 	@echo ... bs2_default
 	@echo ... pio_rotary_encoder

@@ -2,7 +2,11 @@
 #include "pico/stdlib.h"
 #include "hardware/pio.h"
 #include "hardware/irq.h"
+#include "hardware/clocks.h"
 #include "pio_rotary_encoder.pio.h"
+#include "pio_blink.pio.h"
+
+void blink_pin_forever(PIO pio, uint sm, uint offset, uint pin, uint freq);
 
 class RotaryEncoder {                                                               // class to read the rotation of the rotary encoder
 public:
@@ -78,6 +82,13 @@ void WriteCathodes (int Data) {
     gpio_put(NixieCathodes[3], shifted %2);
 }
 
+void blink_pin_forever(PIO pio, uint sm, uint offset, uint pin, uint freq) {
+    blink_program_init(pio, sm, offset, pin);
+    pio_sm_set_enabled(pio, sm, true);
+    printf("Blinking pin %d at %d Hz\n", pin, freq);
+    pio->txf[sm] = clock_get_hz(clk_sys) / (2 * freq);
+}
+
 int main() {
     int scan = 0, lastval, temp;
 
@@ -101,6 +112,14 @@ int main() {
     const uint Onboard_LED = PICO_DEFAULT_LED_PIN;                                  // Debug - also intialise the Onboard LED...
     gpio_init(Onboard_LED);
     gpio_set_dir(Onboard_LED, GPIO_OUT);
+
+    PIO pio = pio0;
+    uint offset = pio_add_program(pio, &pio_blink_program);
+    printf("Loaded program at %d\n", offset);
+
+    blink_pin_forever(pio, 1, offset, 25, 10);                                      // SM1, onboard LED, 10Hz
+//    blink_pin_forever(pio, 0, offset, 0, 3);                                      // Optional: Specify additional SM's, different pins,
+//    blink_pin_forever(pio, 2, offset, 11, 1);                                     //    differnt frequencies
 
     while (true) {                                                                  // infinite loop to print the current rotation
         if (my_encoder.get_rotation() != lastval) {

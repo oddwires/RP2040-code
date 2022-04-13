@@ -82,6 +82,7 @@ clean: "Function Generator\clean"
 # Recursive "clean" directory target.
 "Function Generator\clean": "Function Generator\CMakeFiles\pio_rotary_encoder.dir\clean"
 "Function Generator\clean": "Function Generator\CMakeFiles\PioasmBuild.dir\clean"
+"Function Generator\clean": "Function Generator\CMakeFiles\pio_rotary_encoder_pio_blink_pio_h.dir\clean"
 "Function Generator\clean": "Function Generator\CMakeFiles\pio_rotary_encoder_pio_rotary_encoder_pio_h.dir\clean"
 "Function Generator\clean": "Function Generator\CMakeFiles\ELF2UF2Build.dir\clean"
 .PHONY : "Function Generator\clean"
@@ -1410,6 +1411,7 @@ pico-sdk\src\rp2_common\boot_stage2\CMakeFiles\bs2_default_padded_checksummed_as
 
 # All Build rule for target.
 "Function Generator\CMakeFiles\pio_rotary_encoder.dir\all": pico-sdk\src\rp2_common\boot_stage2\CMakeFiles\bs2_default_padded_checksummed_asm.dir\all
+"Function Generator\CMakeFiles\pio_rotary_encoder.dir\all": "Function Generator\CMakeFiles\pio_rotary_encoder_pio_blink_pio_h.dir\all"
 "Function Generator\CMakeFiles\pio_rotary_encoder.dir\all": "Function Generator\CMakeFiles\pio_rotary_encoder_pio_rotary_encoder_pio_h.dir\all"
 "Function Generator\CMakeFiles\pio_rotary_encoder.dir\all": "Function Generator\CMakeFiles\ELF2UF2Build.dir\all"
 	$(MAKE) $(MAKESILENT) -f "Function Generator\CMakeFiles\pio_rotary_encoder.dir\build.make" /nologo -$(MAKEFLAGS) "Function Generator\CMakeFiles\pio_rotary_encoder.dir\depend"
@@ -1419,7 +1421,7 @@ pico-sdk\src\rp2_common\boot_stage2\CMakeFiles\bs2_default_padded_checksummed_as
 
 # Build rule for subdir invocation for target.
 "Function Generator\CMakeFiles\pio_rotary_encoder.dir\rule": cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start "C:\Program Files (x86)\Pico\RPI - pico\build\CMakeFiles" 69
+	$(CMAKE_COMMAND) -E cmake_progress_start "C:\Program Files (x86)\Pico\RPI - pico\build\CMakeFiles" 70
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\Makefile2 /nologo -$(MAKEFLAGS) "Function Generator\CMakeFiles\pio_rotary_encoder.dir\all"
 	$(CMAKE_COMMAND) -E cmake_progress_start "C:\Program Files (x86)\Pico\RPI - pico\build\CMakeFiles" 0
 .PHONY : "Function Generator\CMakeFiles\pio_rotary_encoder.dir\rule"
@@ -1460,13 +1462,39 @@ PioasmBuild: "Function Generator\CMakeFiles\PioasmBuild.dir\rule"
 .PHONY : "Function Generator\CMakeFiles\PioasmBuild.dir\clean"
 
 #=============================================================================
+# Target rules for target Function Generator/CMakeFiles/pio_rotary_encoder_pio_blink_pio_h.dir
+
+# All Build rule for target.
+"Function Generator\CMakeFiles\pio_rotary_encoder_pio_blink_pio_h.dir\all": "Function Generator\CMakeFiles\PioasmBuild.dir\all"
+	$(MAKE) $(MAKESILENT) -f "Function Generator\CMakeFiles\pio_rotary_encoder_pio_blink_pio_h.dir\build.make" /nologo -$(MAKEFLAGS) "Function Generator\CMakeFiles\pio_rotary_encoder_pio_blink_pio_h.dir\depend"
+	$(MAKE) $(MAKESILENT) -f "Function Generator\CMakeFiles\pio_rotary_encoder_pio_blink_pio_h.dir\build.make" /nologo -$(MAKEFLAGS) "Function Generator\CMakeFiles\pio_rotary_encoder_pio_blink_pio_h.dir\build"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir="C:\Program Files (x86)\Pico\RPI - pico\build\CMakeFiles" --progress-num=70 "Built target pio_rotary_encoder_pio_blink_pio_h"
+.PHONY : "Function Generator\CMakeFiles\pio_rotary_encoder_pio_blink_pio_h.dir\all"
+
+# Build rule for subdir invocation for target.
+"Function Generator\CMakeFiles\pio_rotary_encoder_pio_blink_pio_h.dir\rule": cmake_check_build_system
+	$(CMAKE_COMMAND) -E cmake_progress_start "C:\Program Files (x86)\Pico\RPI - pico\build\CMakeFiles" 9
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\Makefile2 /nologo -$(MAKEFLAGS) "Function Generator\CMakeFiles\pio_rotary_encoder_pio_blink_pio_h.dir\all"
+	$(CMAKE_COMMAND) -E cmake_progress_start "C:\Program Files (x86)\Pico\RPI - pico\build\CMakeFiles" 0
+.PHONY : "Function Generator\CMakeFiles\pio_rotary_encoder_pio_blink_pio_h.dir\rule"
+
+# Convenience name for target.
+pio_rotary_encoder_pio_blink_pio_h: "Function Generator\CMakeFiles\pio_rotary_encoder_pio_blink_pio_h.dir\rule"
+.PHONY : pio_rotary_encoder_pio_blink_pio_h
+
+# clean rule for target.
+"Function Generator\CMakeFiles\pio_rotary_encoder_pio_blink_pio_h.dir\clean":
+	$(MAKE) $(MAKESILENT) -f "Function Generator\CMakeFiles\pio_rotary_encoder_pio_blink_pio_h.dir\build.make" /nologo -$(MAKEFLAGS) "Function Generator\CMakeFiles\pio_rotary_encoder_pio_blink_pio_h.dir\clean"
+.PHONY : "Function Generator\CMakeFiles\pio_rotary_encoder_pio_blink_pio_h.dir\clean"
+
+#=============================================================================
 # Target rules for target Function Generator/CMakeFiles/pio_rotary_encoder_pio_rotary_encoder_pio_h.dir
 
 # All Build rule for target.
 "Function Generator\CMakeFiles\pio_rotary_encoder_pio_rotary_encoder_pio_h.dir\all": "Function Generator\CMakeFiles\PioasmBuild.dir\all"
 	$(MAKE) $(MAKESILENT) -f "Function Generator\CMakeFiles\pio_rotary_encoder_pio_rotary_encoder_pio_h.dir\build.make" /nologo -$(MAKEFLAGS) "Function Generator\CMakeFiles\pio_rotary_encoder_pio_rotary_encoder_pio_h.dir\depend"
 	$(MAKE) $(MAKESILENT) -f "Function Generator\CMakeFiles\pio_rotary_encoder_pio_rotary_encoder_pio_h.dir\build.make" /nologo -$(MAKEFLAGS) "Function Generator\CMakeFiles\pio_rotary_encoder_pio_rotary_encoder_pio_h.dir\build"
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir="C:\Program Files (x86)\Pico\RPI - pico\build\CMakeFiles" --progress-num=70 "Built target pio_rotary_encoder_pio_rotary_encoder_pio_h"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir="C:\Program Files (x86)\Pico\RPI - pico\build\CMakeFiles" --progress-num=71 "Built target pio_rotary_encoder_pio_rotary_encoder_pio_h"
 .PHONY : "Function Generator\CMakeFiles\pio_rotary_encoder_pio_rotary_encoder_pio_h.dir\all"
 
 # Build rule for subdir invocation for target.

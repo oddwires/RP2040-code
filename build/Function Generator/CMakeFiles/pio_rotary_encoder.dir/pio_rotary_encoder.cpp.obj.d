@@ -77,4 +77,8 @@
  C:\PROGRA~2\Pico\pico-sdk\src\RP2_CO~1\HA5FF7~1\include/hardware/irq.h \
  C:\PROGRA~2\Pico\pico-sdk\src\rp2040\HARDWA~1\include/hardware/regs/intctrl.h \
  C:\PROGRA~2\Pico\pico-sdk\src\rp2040\HARDWA~1\include/hardware/regs/m0plus.h \
- C:\PROGRA~2\Pico\RPI-PI~1\build\FUNCTI~1/pio_rotary_encoder.pio.h
+ C:\PROGRA~2\Pico\pico-sdk\src\RP2_CO~1\HARDWA~4\include/hardware/clocks.h \
+ C:\PROGRA~2\Pico\pico-sdk\src\rp2040\HARDWA~2\include/hardware/structs/clocks.h \
+ C:\PROGRA~2\Pico\pico-sdk\src\rp2040\HARDWA~1\include/hardware/regs/clocks.h \
+ C:\PROGRA~2\Pico\RPI-PI~1\build\FUNCTI~1/pio_rotary_encoder.pio.h \
+ C:\PROGRA~2\Pico\RPI-PI~1\build\FUNCTI~1/pio_blink.pio.h
