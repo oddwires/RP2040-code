@@ -1,0 +1,54 @@
+The system is: Windows - 6.1.7601 - AMD64
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" succeeded.
+Compiler: C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.31.31103/bin/Hostx86/x86/cl.exe 
+Build flags: 
+Id flags: -c 
+
+The output was:
+0
+Microsoft (R) C/C++ Optimizing Compiler Version 19.31.31105 for x86
+Copyright (C) Microsoft Corporation.  All rights reserved.
+
+CMakeCXXCompilerId.cpp
+
+
+Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "CMakeCXXCompilerId.obj"
+
+The CXX compiler identification is MSVC, found in "C:/Program Files (x86)/Pico/RPI - pico/build/pioasm/CMakeFiles/3.23.0/CompilerIdCXX/CMakeCXXCompilerId.obj"
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" succeeded.
+Compiler: C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.31.31103/bin/Hostx86/x86/cl.exe 
+Build flags: /DWIN32;/D_WINDOWS;/W3;/GR;/EHsc
+Id flags:  
+
+The output was:
+0
+Microsoft (R) C/C++ Optimizing Compiler Version 19.31.31105 for x86
+Copyright (C) Microsoft Corporation.  All rights reserved.
+
+CMakeCXXCompilerId.cpp
+Microsoft (R) Incremental Linker Version 14.31.31105.0
+Copyright (C) Microsoft Corporation.  All rights reserved.
+
+/out:CMakeCXXCompilerId.exe 
+CMakeCXXCompilerId.obj 
+
+
+Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "CMakeCXXCompilerId.exe"
+
+Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "CMakeCXXCompilerId.obj"
+
+The CXX compiler identification is MSVC, found in "C:/Program Files (x86)/Pico/RPI - pico/build/pioasm/CMakeFiles/3.23.0/CompilerIdCXX/CMakeCXXCompilerId.exe"
+
+Detecting CXX compiler ABI info compiled with the following output:
+Change Dir: C:/Program Files (x86)/Pico/RPI - pico/build/pioasm/CMakeFiles/CMakeTmp
+
+Run Build Command(s):nmake -f Makefile /nologo cmTC_fb33f\fast && 	"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.31.31103\bin\HostX86\x86\nmake.exe"  -f CMakeFiles\cmTC_fb33f.dir\build.make /nologo -L                  CMakeFiles\cmTC_fb33f.dir\build
+Building CXX object CMakeFiles/cmTC_fb33f.dir/CMakeCXXCompilerABI.cpp.obj
+	"C:\Program Files\CMake\bin\cmake.exe" -E cmake_cl_compile_depends --dep-file=CMakeFiles\cmTC_fb33f.dir\CMakeCXXCompilerABI.cpp.obj.d --working-dir="C:\Program Files (x86)\Pico\RPI - pico\build\pioasm\CMakeFiles\CMakeTmp" --filter-prefix="Note: including file: " -- C:\PROGRA~2\MICROS~4\2022\BUILDT~1\VC\Tools\MSVC\1431~1.311\bin\Hostx86\x86\cl.exe @C:\Users\Ant\AppData\Local\Temp\nmEA40.tmp
+CMakeCXXCompilerABI.cpp
+Linking CXX executable cmTC_fb33f.exe
+	"C:\Program Files\CMake\bin\cmake.exe" -E vs_link_exe --intdir=CMakeFiles\cmTC_fb33f.dir --rc=rc --mt=C:\PROGRA~2\WINDOW~2\10\bin\100190~1.0\x86\mt.exe --manifests -- C:\PROGRA~2\MICROS~4\2022\BUILDT~1\VC\Tools\MSVC\1431~1.311\bin\Hostx86\x86\link.exe /nologo @CMakeFiles\cmTC_fb33f.dir\objects1.rsp @C:\Users\Ant\AppData\Local\Temp\nmEC06.tmp
+
+
+
