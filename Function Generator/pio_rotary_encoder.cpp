@@ -5,7 +5,7 @@
 #include "hardware/clocks.h"
 #include "pio_rotary_encoder.pio.h"
 #include "pio_blink.pio.h"
-//
+
 void blink_pin_forever(PIO pio, uint sm, uint offset, uint pin, uint freq);
 
 class RotaryEncoder {                                                               // class to read the rotation of the rotary encoder
