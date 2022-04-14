@@ -8,8 +8,8 @@
 
 void blink_pin_forever(PIO pio, uint sm, uint offset, uint pin, uint freq);
 
-class RotaryEncoder {                                                               // class to read the rotation of the rotary encoder
-public:
+class RotaryEncoder {                                                               // class to initialise a state machine to read 
+public:                                                                             //    the rotation of the rotary encoder
     // constructor
     // rotary_encoder_A is the pin for the A of the rotary encoder.
     // The B of the rotary encoder has to be connected to the next GPIO.
@@ -60,6 +60,16 @@ private:
     static int rotation;                                                            // the current location of rotation
 };
 
+class blink_forever {                                                               // Class to initialise a state macne to blink a GPIO pin
+public:
+    blink_forever(PIO pio, uint sm, uint offset, uint pin, uint freq) {
+    blink_program_init(pio, sm, offset, pin);
+    pio_sm_set_enabled(pio, sm, true);
+    printf("Blinking pin %d at %d Hz\n", pin, freq);
+    pio->txf[sm] = clock_get_hz(clk_sys) / (2 * freq);        
+    }
+};
+
 // Global variables...
 int RotaryEncoder::rotation = 0;                    // Initialize static members of class Rotary_encoder
 int NixieCathodes[4]    = { 18, 19, 20, 21 };       // GPIO ports connecting to Nixie Cathodes  - Data0=>18     Data3=>21
@@ -80,13 +90,6 @@ void WriteCathodes (int Data) {
     gpio_put(NixieCathodes[2], shifted %2);
     shifted = shifted /2;
     gpio_put(NixieCathodes[3], shifted %2);
-}
-
-void blink_pin_forever(PIO pio, uint sm, uint offset, uint pin, uint freq) {
-    blink_program_init(pio, sm, offset, pin);
-    pio_sm_set_enabled(pio, sm, true);
-    printf("Blinking pin %d at %d Hz\n", pin, freq);
-    pio->txf[sm] = clock_get_hz(clk_sys) / (2 * freq);
 }
 
 int main() {
@@ -117,9 +120,9 @@ int main() {
     uint offset = pio_add_program(pio, &pio_blink_program);
     printf("Loaded program at %d\n", offset);
 
-    blink_pin_forever(pio, 1, offset, 25, 10);                                      // SM1, onboard LED, 10Hz
-//    blink_pin_forever(pio, 0, offset, 0, 3);                                      // Optional: Specify additional SM's, different pins,
-//    blink_pin_forever(pio, 2, offset, 11, 1);                                     //    differnt frequencies
+    blink_forever my_blinker(pio, 1, offset, 25, 10);                                // SM1, onboard LED, 10Hz
+//  blink_pin_forever(pio, 0, offset, 0, 3);                                      // Optional: Specify additional SM's, different pins,
+//  blink_pin_forever(pio, 2, offset, 11, 1);                                     //    differnt frequencies
 
     while (true) {                                                                  // infinite loop to print the current rotation
         if (my_encoder.get_rotation() != lastval) {
