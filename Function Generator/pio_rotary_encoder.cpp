@@ -7,6 +7,11 @@
 #include "pio_rotary_encoder.pio.h"
 #include "pio_blink.pio.h"
 
+// Ref. Commands to use when my useless laptop crashes causing VSCode to trash the environment...
+//      cd ./build
+//      cmake -G "NMake Makefiles" ..
+//      nmake
+
 void blink_pin_forever(PIO pio, uint sm, uint offset, uint pin, uint freq);
 // Number of samples per period in sine table
 #define sine_table_size 256
@@ -75,7 +80,7 @@ public:
 
 // Global variables...
 int RotaryEncoder::rotation;                        // Initialize static members of class Rotary_encoder
-int DAC[4]              = { 2, 3, 4, 5 };           // DAC ports                                - DAC0=>2  DAC3=>5
+int DAC[5]              = { 2, 3, 4, 5, 6 };        // DAC ports                                - DAC0=>2  DAC4=>6
 int NixieCathodes[4]    = { 18, 19, 20, 21 };       // GPIO ports connecting to Nixie Cathodes  - Data0=>18     Data3=>21
 int NixieAnodes[3]      = { 22, 26, 27 };           // GPIO ports connecting to Nixie Anodes    - Anode0=>22    Anode2=>27
 int EncoderPorts[2]     = { 16, 17 };               // GPIO ports connecting to Rotary Encoder  - 16=>Clock     17=>Data
@@ -141,12 +146,12 @@ int main() {
     int i ;
     for (i=0; i<(sine_table_size); i++){
 //      raw_sin[i] = (int)(2047 * sin((float)i*6.283/(float)sine_table_size) + 2047); // 12 bit
-        raw_sin[i] = (int)(7 * sin((float)i*6.283/(float)sine_table_size) + 7);       // 7 bit
+        raw_sin[i] = (int)(15 * sin((float)i*6.283/(float)sine_table_size) + 15);       // 5 bit
         DAC_data[i] = DAC_config_chan_A | (raw_sin[i] & 0x0fff) ;
     }
 
-    // Setup dummy data on DAC output...
-    int DAC_count = 5, DAC_val;
+    // Setup data on DAC output...
+    int DAC_count = 0, DAC_val;
     bool BitSet;
 
     while (true) {                                                                  // infinite loop to print the current rotation
@@ -182,15 +187,17 @@ int main() {
         if (DAC_count == 256) { DAC_count = 0; }
  
         DAC_val = raw_sin[DAC_count];                                               // read value from Sine table
-        BitSet = (DAC_val & 1) ? true : false;
-        gpio_put(DAC[0], BitSet);
-        BitSet = (DAC_val & 2) ? true : false;
-        gpio_put(DAC[1], BitSet);
-        BitSet = (DAC_val & 4) ? true : false;
-        gpio_put(DAC[2], BitSet);
-        BitSet = (DAC_val & 8) ? true : false;
-        gpio_put(DAC[3], BitSet);
+        BitSet = (DAC_val & 1) ? true : false;                                      // test bit 0
+        gpio_put(DAC[0], BitSet);                                                   // Transfer to GPIO
+        BitSet = (DAC_val & 2) ? true : false;                                      // test bit 1
+        gpio_put(DAC[1], BitSet);                                                   // Transfer to GPIO
+        BitSet = (DAC_val & 4) ? true : false;                                      // test bit 2
+        gpio_put(DAC[2], BitSet);                                                   // Transfer to GPIO
+        BitSet = (DAC_val & 8) ? true : false;                                      // test bit 3
+        gpio_put(DAC[3], BitSet);                                                   // Transfer to GPIO
+        BitSet = (DAC_val & 16) ? true : false;                                     // test bit 4
+        gpio_put(DAC[4], BitSet);                                                   // Transfer to GPIO
 
-        sleep_ms(5);
+        sleep_ms(2);
     }
 }
