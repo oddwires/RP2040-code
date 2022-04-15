@@ -1,9 +1,9 @@
 ****(Work in progress)****
 # Code to create a Function Generator using a RPI pico. #
 
-* Devlopment + Debug environment:
+* Development + Debug environment:
   * VSCode on Win 7
-  * Picoprobe running on 2nd RPI pico (foreground)
+  * Picoprobe running on 2nd RPI pico
   * OpenOCD and GDB
 * Rotary encoder input using State Machine 0
 * Onboard LED flashing using State Machine 1
