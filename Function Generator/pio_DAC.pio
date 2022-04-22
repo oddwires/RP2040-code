@@ -1,64 +1,21 @@
 .program pio_DAC
+; Repeatedly get one word of data from the TX FIFO, stalling when the FIFO is
+; empty. Write the data to the MOV pin group.
 .wrap_target
-        set y,0b00000
-        mov pins, y
-        set x, 31
-label01:
-        jmp x--, label01
-;
-        set y,0b00001
-        mov pins, y
-        set x, 31
-label02:
-        jmp x--, label02
-;
-        set y,0b00010
-        mov pins, y
-        set x, 31
-label03:
-        jmp x--, label03
-;
-        set y,0b00011
-        mov pins, y
-        set x, 31
-label04:
-        jmp x--, label04
-;
-        set y,0b00100
-        mov pins, y
-        set x, 31
-label05:
-        jmp x--, label05
-;
-        set y,0b00101
-        mov pins, y
-        set x, 31
-label06:
-        jmp x--, label06
-;
-        set y,0b00110
-        mov pins, y
-        set x, 31
-label07:
-        jmp x--, label07
-;
-        set y,0b00111
-        mov pins, y
-        set x, 31
-label08:
-        jmp x--, label08
-;
+        pull block
+        mov pins, osr
 .wrap
 
 % c-sdk {
 // this is a raw helper function for use by the user which sets up the GPIO output, and configures the SM to output on a particular pin
 
-void pio_DAC_program_init(PIO pio, uint sm, uint offset, uint pin) {
-    for(uint i=2; i<6; i++) {
+void pio_DAC_program_init(PIO pio, uint sm, uint offset, uint pin, uint div) {
+    for(uint i=2; i<7; i++) {
         pio_gpio_init(pio, i);
     }
    pio_sm_set_consecutive_pindirs(pio, sm, 2, 5, true); 
    pio_sm_config c = pio_DAC_program_get_default_config(offset);
+   sm_config_set_clkdiv(&c, div);                                   // Set the clock divider for the state machine
    sm_config_set_out_pins(&c, 2, 5);
    pio_sm_init(pio, sm, offset, &c);
 }
