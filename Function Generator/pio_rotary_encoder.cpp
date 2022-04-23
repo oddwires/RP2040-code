@@ -84,10 +84,9 @@ public:
 
 class DAC_write {
 public:
-    DAC_write(PIO pio, uint sm, uint offset, uint pin, uint freq, uint DAC_div) {
-        pio_DAC_program_init(pio, sm, offset, pin, DAC_div);
-        pio_sm_set_enabled(pio, sm, true);        
-        printf("PIO:%d, SM:%d running 'DAC' @ %dHz\n", 1, sm, freq);
+    DAC_write(PIO pio, uint sm, uint offset, uint pin) {
+        pio_DAC_program_init(pio, sm, offset, pin);
+        printf("PIO:%d, SM:%d running 'DAC'\n", 1, sm);
 //      pio->txf[sm] = clock_get_hz(clk_sys) / (2 * freq);     // Write to FIFO
     }
 };
@@ -125,14 +124,16 @@ void WriteCathodes (int Data) {
 int main() {
     stdio_init_all();                                                               // needed for printf
 
-//  set_sys_clock_khz(280000, true);                                                // 1MHz from DAC (Note: kills Picoprobe connection)
+    set_sys_clock_khz(280000, true);                                                // Overclocking the core by a factor of 2 allows 1MHz from DAC
     int scan = 0, lastval, temp;
     static const float blink_freq = 16000;                                          // Reduce SM clock to keep flash visible...
     float blink_div = (float)clock_get_hz(clk_sys) / blink_freq;                    //   ... calculate the required blink SM clock divider
     static const float rotary_freq = 16000;                                         // Clock speed reduced to eliminate rotary encoder jitter...
     float rotary_div = (float)clock_get_hz(clk_sys) / rotary_freq;                  //... then calculate the required rotary encoder SM clock divider
-    static const float DAC_freq = 5000000;                                         // 37KHz (measured)
-    float DAC_div = (float)clock_get_hz(clk_sys) / DAC_freq;                  //... then calculate the required rotary encoder SM clock divider
+//  Leaving this here, as it may yet be the best way to adjust the signal frequency...
+//    static const float DAC_freq = 5000000;                                         // 37KHz (measured)
+//    float DAC_div = (float)clock_get_hz(clk_sys) / DAC_freq;                  //... then calculate the required rotary encoder SM clock divider
+//    float DAC_div = 1;
 
 // Set up the GPIO pins...
     const uint Onboard_LED = PICO_DEFAULT_LED_PIN;                                  // Debug use - intialise the Onboard LED...
@@ -167,7 +168,7 @@ int main() {
     pio = pio1;
     offset = pio_add_program(pio, &pio_DAC_program);
     uint sm_DAC = pio_claim_unused_sm(pio, true);
-    DAC_write my_DAC(pio, sm_DAC, offset, 2, DAC_freq, DAC_div);                    // DAC State machine, first GPIO=>2, 100Hz
+    DAC_write my_DAC(pio, sm_DAC, offset, 2);                                       // DAC State machine, first GPIO=>2
 
 // Build sine table
     unsigned short DAC_data[sine_table_size] __attribute__ ((aligned(2048))) ;
@@ -183,9 +184,6 @@ int main() {
     printf("\nConfirm memory alignment...\nBeginning: %x", &DAC_data[0]);
     printf("\nFirst: %x", &DAC_data[1]);
     printf("\nSecond: %x\n\n", &DAC_data[2]);
-
-// DEBUG - Data will be copied from src to dst
-// int dst[sine_table_size];
 
 // Get 2 x free DMA channels - panic() if there are none
 // ctrl_chan loads control blocks into data_chan, which executes them.
@@ -218,32 +216,21 @@ int main() {
     channel_config_set_transfer_data_size(&c2, DMA_SIZE_32);            // 32-bit txfers
     channel_config_set_read_increment(&c2, true);                       // increment the read adddress, don't increment write address
     channel_config_set_write_increment(&c2, false);
-
-// We call the function that we created to configure the DMA timer 0. In this case, we call it with the value 0x0017ffff.
-// This will configure the timer to overflow at (0x0017/0xffff)*sys_clk Hz, or (23/65535)*sys_clk Hz.
-// With a default sys_clk of 125MHz, this gives us (3.51e-4)*(125MHz)  ≈  43,870 Hz.
-    dma_channel_set_timer0(0x0800ffff) ;                                // (X/Y)*sys_clk, where X is the first 16 bytes and Y is the second
-//  dma_channel_set_timer0(0x0017ffff) ;                                // (X/Y)*sys_clk, where X is the first 16 bytes and Y is the second
-                                                                        // sys_clk is 125 MHz unless changed in code
-
-    channel_config_set_dreq(&c2, 0x3b);                                 // 0x3b means timer0 (see SDK manual)
+    channel_config_set_dreq(&c2, pio_get_dreq(pio, sm_DAC, true));      // Transfer when PIO SM TX FIFO has space
     channel_config_set_chain_to(&c2, ctrl_chan);                        // chain to the controller DMA channel
     channel_config_set_ring(&c2, false, 9);                             // 1 << 9 byte boundary on read ptr    
                                                                         // set wrap boundary. This is why we needed alignment!
-
-   dma_channel_configure(
+    dma_channel_configure(
         data_chan,                                                      // Channel to be configured
         &c2,                                                            // The configuration we just created
-//      dst,                                                            // DEBUG - send to memory
-        &pio->txf[sm_DAC],                   // SHOULD STILL BE PIO1 - WRITE TO FIFO ????
+        &pio->txf[sm_DAC],                                              // Write to FIFO
         DAC_data,                                                       // The initial read address (AT NATURAL ALIGNMENT POINT)
         sine_table_size,                                                // Number of transfers; in this case each is 2 byte.
         false                                                           // Don't start immediately.
     );
 
-    // We could choose to go and do something else whilst the DMA is doing its
-    // thing. In this case the processor has nothing else to do, so we just
-    // wait for the DMA to finish.
+// We could choose to go and do something else whilst the DMA is doing its thing.
+// In this case the processor has nothing else to do, so we just wait for the DMA to finish.
     dma_channel_wait_for_finish_blocking(data_chan);
 
 // start the control channel...
@@ -284,10 +271,8 @@ int main() {
         if (scan == 3) { scan = 0; }
         DAC_count++;
         if (DAC_count == 256) { DAC_count = 0; }
- 
-//      DAC_val = raw_sin[DAC_count];                                   // read value from Sine table
-//      pio_sm_put_blocking(pio, sm_DAC, DAC_val);
 
-        sleep_ms(2);
+        sleep_ms(7);                                                    // Pause:   Short enough to avoid Nixie tube flicker
+                                                                        //          Long enough to avoid Nixie tube bluring
     }
 }
