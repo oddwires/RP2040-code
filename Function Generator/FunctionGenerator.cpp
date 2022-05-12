@@ -5,20 +5,22 @@
 #include "hardware/irq.h"
 #include "hardware/clocks.h"
 #include "hardware/dma.h"
-#include "pio_rotary_encoder.pio.h"
-#include "pio_blink.pio.h"
+#include "rotary_encoder.pio.h"
+#include "blink.pio.h"
 #include "FastDAC.pio.h"
 #include "SlowDAC.pio.h"
 
 #define sine_table_size 256         // Number of samples per period in sine table
-
-// Ref. Commands to use when my useless laptop crashes causing VSCode to trash the environment...
-//      cd ./build
-//      cmake -G "NMake Makefiles" ..
-//      nmake
+#define SW_3way_1       14          // GPIO connection
+#define SW_3way_2       15          // GPIO connection
 
 // Global variables...
+int SW_3way;
+int LastFrequency, LastWaveForm, LastLevel, Last_SW_3way;
+int LastVal;
+int tmp;                                            // DEBUG USE
 int ScanCtr, FlashCtr;
+
 int DAC[5]              = { 2, 3, 4, 5, 6 };        // DAC ports                                - DAC0=>2  DAC4=>6
 int NixieCathodes[4]    = { 18, 19, 20, 21 };       // GPIO ports connecting to Nixie Cathodes  - Data0=>18     Data3=>21
 int NixieAnodes[3]      = { 22, 26, 27 };           // GPIO ports connecting to Nixie Anodes    - Anode0=>22    Anode2=>27
@@ -27,8 +29,8 @@ int NixieBuffer[3]      = { 6, 7, 8 };              // Values to be displayed on
                                                     //                                          - Tube1=>10's
                                                     //                                          - Tube2=>100's
 int raw_sin[sine_table_size] ;
-unsigned short DAC_data[sine_table_size] __attribute__ ((aligned(2048))) ;      // Align DAC data
-const uint32_t transfer_count = sine_table_size ;                               // Number of DMA transfers per event
+unsigned short DAC_data[sine_table_size] __attribute__ ((aligned(2048))) ;          // Align DAC data
+const uint32_t transfer_count = sine_table_size ;                                   // Number of DMA transfers per event
 
 void blink_pin_forever(PIO pio, uint sm, uint offset, uint pin, uint freq);
 
@@ -60,33 +62,59 @@ public:                                                                         
         printf("PIO:0 SM:%d - Rotary encoder' @ %dHz\n\n", sm, freq);
     }
 
-    void set_rotation(int _rotation) {                                              // set the current rotation to a specific value
-        rotation = _rotation;
-    }
+    void set_Frequency(int _Frequency) { Frequency = _Frequency; }
+    void set_WaveForm(int _WaveForm) { WaveForm = _WaveForm; }
+    void set_Level(int _Level) { Level = _Level; }
 
-    int get_rotation(void) {                                                        // get the current rotation
-        return rotation;
-    }
+    int get_Frequency(void) { return Frequency; }
+    int get_WaveForm(void) { return WaveForm; }
+    int get_Level(void) { return Level; }
 
 private:
     static void pio_irq_handler() {
         if (pio0_hw->irq & 2) {                                                     // test if irq 0 was raised
-            rotation = rotation - 1;
-            if ( rotation < 0) { rotation = 999; }
+             switch (SW_3way) {
+                case 0b010:                                                         // Top: Frequency range 0 to 999
+                     Frequency--;
+                     if ( Frequency < 0 ) { Frequency = 999; }
+                     break;
+                case 0b001:                                                         // Bottom : Level range 0 to 99
+                    Level--;
+                    if ( Level < 0 ) { Level = 99; }
+                    break;
+                case 0b011:                                                         // Middle: WaveForm range 0 to 4
+                    WaveForm--;
+                    if ( WaveForm < 0 ) { WaveForm = 5; }
+             }
         }
         if (pio0_hw->irq & 1) {                                                     // test if irq 1 was raised
-            rotation = rotation + 1;
-            if ( rotation > 999 ) { rotation = 0; }
+             switch (SW_3way) {
+                case 0b010:                                                         // Top: Frequency range 0 to 999
+                     Frequency++;
+                     if ( Frequency > 999 ) { Frequency = 0; }
+                     break;
+                case 0b001:                                                         // Bottom : Level range 0 to 99
+                    Level++;
+                    if ( Level > 99 ) { Level = 0; }
+                    break;
+                case 0b011:                                                         // Middle: WaveForm range 0 to 4
+                    WaveForm++;
+                    if ( WaveForm > 5 ) { WaveForm = 0; }
+             }
         }
         pio0_hw->irq = 3;                                                           // clear both interrupts
     }
 
     PIO pio;                                                                        // the pio instance
     uint sm;                                                                        // the state machine
-    static int rotation;                                                            // the current location of rotation
+    static int Frequency;
+    static int WaveForm;
+    static int Level;
 };
 // Global Var...
-int RotaryEncoder::rotation;                        // Initialize static members of class Rotary_encoder
+int RotaryEncoder::Frequency;                        // Initialize static members of class Rotary_encoder
+int RotaryEncoder::WaveForm;                         // Initialize static members of class Rotary_encoder
+int RotaryEncoder::Level;                            // Initialize static members of class Rotary_encoder
 
 class blink_forever {                                                               // Class to initialise a state macne to blink a GPIO pin
 public:
@@ -126,8 +154,7 @@ bool Repeating_Timer_Callback(struct repeating_timer *t) {
         case 2:
             gpio_put(NixieAnodes[1], 0) ;                               // Turn off previous anode
             WriteCathodes(NixieBuffer[2]);                              // Set up new data on cathodes (100's)
-            gpio_put(NixieAnodes[2], 1) ;                               // Turn on current anode
-            break;
+            gpio_put(NixieAnodes[2], 1) ;                               // Turn on current anode.
     }
     ScanCtr++;
     if ( ScanCtr > 2 ) { ScanCtr = 0; }                                 // Bump and Wrap the counter
@@ -135,16 +162,15 @@ bool Repeating_Timer_Callback(struct repeating_timer *t) {
 }
 
 int main() {
-    set_sys_clock_khz(280000, true);                                            // Overclocking the core by a factor of 2 allows 1MHz from DAC
-    stdio_init_all();                                                           // needed for printf
-
-    int lastval, temp;
+    int temp;
     static const float blink_freq = 16000;                                      // Reduce SM clock to keep flash visible...
     float blink_div = (float)clock_get_hz(clk_sys) / blink_freq;                //   ... calculate the required blink SM clock divider
     static const float rotary_freq = 16000;                                     // Clock speed reduced to eliminate rotary encoder jitter...
     float rotary_div = (float)clock_get_hz(clk_sys) / rotary_freq;              //... then calculate the required rotary encoder SM clock divider
-    float DAC_freq;
-    float DAC_div;
+    float DAC_freq, DAC_div;
+
+    set_sys_clock_khz(280000, true);                                            // Overclocking the core by a factor of 2 allows 1MHz from DAC
+    stdio_init_all();                                                           // needed for printf
 
 // Set up the GPIO pins...
     const uint Onboard_LED = PICO_DEFAULT_LED_PIN;                              // Debug use - intialise the Onboard LED...
@@ -166,15 +192,37 @@ int main() {
         gpio_set_dir(EncoderPorts[i], GPIO_IN);                                 // Set as input
         gpio_pull_up(EncoderPorts[i]);                                          // Enable pull up
     }
+    // Initialise the 3-way switch inputs...
+    gpio_init(SW_3way_1);
+    gpio_set_dir(SW_3way_1, GPIO_IN);
+    gpio_pull_up(SW_3way_1);
+    gpio_init(SW_3way_2);
+    gpio_set_dir(SW_3way_2, GPIO_IN);
+    gpio_pull_up(SW_3way_2);
 
-// Build sine table
     unsigned short DAC_data[sine_table_size] __attribute__ ((aligned(2048))) ;
     int i ;
-    for (i=0; i<(sine_table_size); i++){
+    // Sine wave table...
+    for (i=0; i<(sine_table_size); i++) {
 //      raw_sin[i] = (int)(2047 * sin((float)i*6.283/(float)sine_table_size) + 2047); // 12 bit
-        raw_sin[i] = (int)(15 * sin((float)i*6.283/(float)sine_table_size) + 15);       // 5 bit
+        raw_sin[i] = (int)(16 * sin((float)i*6.283/(float)sine_table_size) + 16);       // 5 bit
         DAC_data[i] = raw_sin[i] ;                                              // memory alligned data
     }
+
+/*     // SawTooth wave table...
+    for (i=0; i<(sine_table_size); i++) {
+        DAC_data[i] = i%32;       // 5 bit
+    } */
+
+/*     // Reverse SawTooth wave table...
+    for (i=0; i<(sine_table_size); i++) {
+        DAC_data[i] = 32-i%32;       // 5 bit
+    } */
+
+/*     // Triangular wave table...
+    for (i=0; i<(sine_table_size); i++) {
+        DAC_data[i] = abs((i % 64)-31);         // 5 bit. triangular wave of period 64, oscillating between 0 and 31
+    } */
 
 // Confirm memory alignment
     printf("\nConfirm memory alignment...\nBeginning: %x", &DAC_data[0]);
@@ -187,7 +235,9 @@ int main() {
     blink_forever my_blinker(pio, 0, offset, 25, blink_freq, blink_div);        // SM0=>onboard LED
 
     RotaryEncoder my_encoder(16, rotary_freq);                                  // the A of the rotary encoder is connected to GPIO 16, B to GPIO 17
-    my_encoder.set_rotation(17);                                                // Lowest frequency that will work with FastDAC.pio
+    my_encoder.set_Frequency(17);                                               // Lowest frequency that will work with FastDAC.pio
+    my_encoder.set_WaveForm(0);                                                 // Default: Sine wave
+    my_encoder.set_Level(50);                                                   // Default: 50%
 
 // Select a PIO and find a free state machine on it (erroring if there are none).
 // Configure the state machine to run our program, and start it, using the helper function we included in our .pio file.
@@ -291,42 +341,85 @@ int main() {
 // If the delay is > 0 then this is the delay between the previous callback ending and the next starting. If the delay is negative
 // then the next call to the callback will be exactly 7ms after the start of the call to the last callback.
   struct repeating_timer timer;
-    add_repeating_timer_ms(-7, Repeating_Timer_Callback, NULL, &timer);     // 7ms - Short enough to avoid Nixie tube flicker
-                                                                            //       Long enough to avoid Nixie tube bluring
+    add_repeating_timer_ms(-7, Repeating_Timer_Callback, NULL, &timer);             // 7ms - Short enough to avoid Nixie tube flicker
+                                                                                    //       Long enough to avoid Nixie tube bluring
 
-    while (true) {                                                          // Infinite loop to print the current rotation
-        if (my_encoder.get_rotation() != lastval) {
+    while (true) {                                                                  // Infinite loop to print the current rotation
+        if ((my_encoder.get_Frequency() != LastFrequency) ||
+            (my_encoder.get_WaveForm() != LastWaveForm)   ||
+            (my_encoder.get_Level() != LastLevel))  {
             // Falls through here when the rotary encoder value changes...
-            temp  = my_encoder.get_rotation();
-            if (temp >= 17) {
-            // If DAC_div exceeds 2^16 (65,536), the registers wrap around, and the State Machine clock will be incorrect.
-            // A slower version of the DAC State Machine is used for frequencies below 17Hz, allowing the DAC_div to be kept
-            // within range.
-                // FastDAC ( 17Hz=>1Mhz )
-                DAC_freq = temp*256000;                                     // Target frequency...
-                DAC_div = (float)clock_get_hz(clk_sys) / DAC_freq;          //   ...calculate the required rotary encoder SM clock divider
-                pio_sm_set_clkdiv(pio1, sm_FastDAC, DAC_div );
-                pio_sm_set_enabled(pio, sm_SlowDAC, false);                 // Stop the SlowDAC State MAchine
-                pio_sm_set_enabled(pio, sm_FastDAC, true);                  // Start the FastDAC State Machine
-                dma_start_channel_mask(1u << fast_ctrl_chan);               // Start the FastDAC DMA channel
-            } else {
-                // SlowDAC ( 1Hz=>16Hz )
-                DAC_freq = temp*256;                                        // Target frequency...
-                DAC_div = (float)clock_get_hz(clk_sys) / DAC_freq;          //   ...calculate the required rotary encoder SM clock divider
-                DAC_div = DAC_div / 32;                                     // Adjust to keep DAC_div within useable range
-                pio_sm_set_clkdiv(pio1, sm_SlowDAC, DAC_div );
-                pio_sm_set_enabled(pio, sm_FastDAC, false);                 // Stop the FastDAC State Machine
-                pio_sm_set_enabled(pio, sm_SlowDAC, true);                  // Start the SlowDAC State MAchine
-                dma_start_channel_mask(1u << slow_ctrl_chan);               // Start the SlowDAC DMA channel
+            switch (SW_3way) {
+                case 0b010:                                                         // Frequency
+                    temp  = my_encoder.get_Frequency();
+                    if (temp >= 17) {
+                    // If DAC_div exceeds 2^16 (65,536), the registers wrap around, and the State Machine clock will be incorrect.
+                    // A slower version of the DAC State Machine is used for frequencies below 17Hz, allowing the DAC_div to be kept
+                    // within range.
+                        // FastDAC ( 17Hz=>1Mhz )
+                        DAC_freq = temp*256000;                                     // Target frequency...
+                        DAC_div = (float)clock_get_hz(clk_sys) / DAC_freq;          //   ...calculate the required rotary encoder SM clock divider
+                        pio_sm_set_clkdiv(pio1, sm_FastDAC, DAC_div );
+                        pio_sm_set_enabled(pio, sm_SlowDAC, false);                 // Stop the SlowDAC State MAchine
+                        pio_sm_set_enabled(pio, sm_FastDAC, true);                  // Start the FastDAC State Machine
+                        dma_start_channel_mask(1u << fast_ctrl_chan);               // Start the FastDAC DMA channel
+                    } else {
+                        // SlowDAC ( 1Hz=>16Hz )
+                        DAC_freq = temp*256;                                        // Target frequency...
+                        DAC_div = (float)clock_get_hz(clk_sys) / DAC_freq;          //   ...calculate the required rotary encoder SM clock divider
+                        DAC_div = DAC_div / 32;                                     // Adjust to keep DAC_div within useable range
+                        pio_sm_set_clkdiv(pio1, sm_SlowDAC, DAC_div );
+                        pio_sm_set_enabled(pio, sm_FastDAC, false);                 // Stop the FastDAC State Machine
+                        pio_sm_set_enabled(pio, sm_SlowDAC, true);                  // Start the SlowDAC State MAchine
+                        dma_start_channel_mask(1u << slow_ctrl_chan);               // Start the SlowDAC DMA channel
+                    }
+                    printf("Rotation: %03d - SM Div: %8.4f - SM Clk: %06.0gHz - Fout: %3.0fHz\n",temp, DAC_div, DAC_freq, DAC_freq/256);
+                    LastFrequency = temp;
+                    NixieBuffer[0] = temp % 10 ;                                    // First Nixie ( 1's )
+                    temp /= 10 ;                                                    // finished with temp, so ok to trash it. temp=>10's
+                    NixieBuffer[1] = temp % 10 ;                                    // Second Nixie ( 10's )
+                    temp /= 10 ;                                                    // temp=>100's
+                    NixieBuffer[2] = temp % 10 ;                                    // Third Nixie ( 100's )
+                    break;
+                case 0b011:                                                         // Waveform
+                    temp  = my_encoder.get_WaveForm();
+                    switch (temp) {
+                        case 0: printf("Rotation: %03d - Sine\n",temp); break;
+                        case 1: printf("Rotation: %03d - Sawtooth (rising)\n",temp); break;
+                        case 2: printf("Rotation: %03d - Sawtooth (falling)\n",temp); break;
+                        case 3: printf("Rotation: %03d - Triangle\n",temp); break;
+                        case 4: printf("Rotation: %03d - Square\n",temp); break;
+                    }
+                    LastWaveForm = temp;
+                    NixieBuffer[0] = temp % 10 ;                                    // First Nixie ( 1's )
+                    temp /= 10 ;                                                    // finished with temp, so ok to trash it. temp=>10's
+                    NixieBuffer[1] = temp % 10 ;                                    // Second Nixie ( 10's )
+                    temp /= 10 ;                                                    // temp=>100's
+                    NixieBuffer[2] = 10 ;                                           // Blank Third Nixie ( 100's )
+                    break;
+                case 0b001:                                                         // Level
+                    temp  = my_encoder.get_Level();
+                    printf("Rotation: %03d\n",temp);
+                    LastLevel = temp;
+                    NixieBuffer[0] = temp % 10 ;                                    // First Nixie ( 1's )
+                    temp /= 10 ;                                                    // finished with temp, so ok to trash it. temp=>10's
+                    NixieBuffer[1] = temp % 10 ;                                    // Second Nixie ( 10's )
+                    temp /= 10 ;                                                    // temp=>100's
+                    NixieBuffer[2] = 10 ;                                           // Blank Third Nixie ( 100's )
             }
-            printf("Rotation: %03d - SM Div: %8.4f - SM Clk: %06.0gHz - Fout: %3.0fHz\n",temp, DAC_div, DAC_freq, DAC_freq/256);
-
-            lastval = temp;
-            NixieBuffer[0] = temp % 10 ;                                    // First Nixie ( 1's )
-            temp /= 10 ;                                                    // finished with temp, so ok to trash it. temp=>10's
-            NixieBuffer[1] = temp % 10 ;                                    // Second Nixie ( 10's )
-            temp /= 10 ;                                                    // temp=>100's
-            NixieBuffer[2] = temp % 10 ;                                    // Third Nixie ( 100's )
+        }
+        // Get 3 way toggle switch status...
+        SW_3way = (gpio_get(SW_3way_1)<<1) + (gpio_get(SW_3way_2));                 // 0b010 - Top position
+                                                                                    // 0b001 - Bottom position
+                                                                                    // 0b011 - Middle position
+        if ( SW_3way != Last_SW_3way) {
+            switch (SW_3way) {                                                      // DEBUG - Print 3 way switch status
+                case 0b010: printf("Frequency:\n"); break;                          // Top
+                case 0b011: printf("Waveform:\n"); break;                           // Middle
+                case 0b001: printf("Level:\n"); break;                              // Bottom
+//              case 0b000: printf("Undefined:\n");                                 // Impossible combination
+            }
+        Last_SW_3way = SW_3way;
         }
     }
 }

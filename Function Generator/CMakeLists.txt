@@ -1,20 +1,20 @@
-add_executable(pio_rotary_encoder)
+add_executable(FunctionGenerator)
 
-pico_generate_pio_header(pio_rotary_encoder ${CMAKE_CURRENT_LIST_DIR}/pio_rotary_encoder.pio)
-pico_generate_pio_header(pio_rotary_encoder ${CMAKE_CURRENT_LIST_DIR}/pio_blink.pio)
-pico_generate_pio_header(pio_rotary_encoder ${CMAKE_CURRENT_LIST_DIR}/FastDAC.pio)
-pico_generate_pio_header(pio_rotary_encoder ${CMAKE_CURRENT_LIST_DIR}/SlowDAC.pio)
+pico_generate_pio_header(FunctionGenerator ${CMAKE_CURRENT_LIST_DIR}/rotary_encoder.pio)
+pico_generate_pio_header(FunctionGenerator ${CMAKE_CURRENT_LIST_DIR}/blink.pio)
+pico_generate_pio_header(FunctionGenerator ${CMAKE_CURRENT_LIST_DIR}/FastDAC.pio)
+pico_generate_pio_header(FunctionGenerator ${CMAKE_CURRENT_LIST_DIR}/SlowDAC.pio)
 
-target_sources(pio_rotary_encoder PRIVATE pio_rotary_encoder.cpp)
+target_sources(FunctionGenerator PRIVATE FunctionGenerator.cpp)
 
-target_link_libraries(pio_rotary_encoder PRIVATE
+target_link_libraries(FunctionGenerator PRIVATE
         pico_stdlib
         hardware_pio
         hardware_dma
         )
 
-pico_add_extra_outputs(pio_rotary_encoder)
+pico_add_extra_outputs(FunctionGenerator)
 
 # add url via pico_set_program_url
-example_auto_set_url(pio_rotary_encoder)
+example_auto_set_url(FunctionGenerator)
 
