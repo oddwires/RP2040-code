@@ -15,13 +15,9 @@
 #define SW_3way_2       15          // GPIO connection
 
 // Global variables...
-int SW_3way;
-int LastFrequency, LastWaveForm, LastLevel;
-int Last_SW_3way;
+int SW_3way, Last_SW_3way, ScanCtr;
 int UpdateReq;                                      // Flag from Rotary Encoder to main loop indicating a value has changed
-int LastVal;
 int tmp;                                            // DEBUG USE
-int ScanCtr, FlashCtr;
 
 int DAC[5]              = { 2, 3, 4, 5, 6 };        // DAC ports                                - DAC0=>2  DAC4=>6
 int NixieCathodes[4]    = { 18, 19, 20, 21 };       // GPIO ports connecting to Nixie Cathodes  - Data0=>18     Data3=>21
@@ -256,7 +252,7 @@ int main() {
     gpio_set_dir(SW_3way_2, GPIO_IN);
     gpio_pull_up(SW_3way_2);
 
-    WaveForm_update(4);
+    RotaryEncoder my_encoder(16, rotary_freq);                                  // the A of the rotary encoder is connected to GPIO 16, B to GPIO 17
 
 // Confirm memory alignment
     printf("\nConfirm memory alignment...\nBeginning: %x", &DAC_data[0]);
@@ -267,11 +263,6 @@ int main() {
     PIO pio = pio0;
     uint offset = pio_add_program(pio, &pio_blink_program);
     blink_forever my_blinker(pio, 0, offset, 25, blink_freq, blink_div);        // SM0=>onboard LED
-
-    RotaryEncoder my_encoder(16, rotary_freq);                                  // the A of the rotary encoder is connected to GPIO 16, B to GPIO 17
-    my_encoder.set_Frequency(17);                                               // Lowest frequency that will work with FastDAC.pio
-    my_encoder.set_WaveForm(0);                                                 // Default: Sine wave
-    my_encoder.set_Level(50);                                                   // Default: 50%
 
 // Select a PIO and find a free state machine on it (erroring if there are none).
 // Configure the state machine to run our program, and start it, using the helper function we included in our .pio file.
@@ -375,10 +366,15 @@ int main() {
 // If the delay is > 0 then this is the delay between the previous callback ending and the next starting. If the delay is negative
 // then the next call to the callback will be exactly 7ms after the start of the call to the last callback.
   struct repeating_timer timer;
-    add_repeating_timer_ms(-7, Repeating_Timer_Callback, NULL, &timer);             // 7ms - Short enough to avoid Nixie tube flicker
-                                                                                    //       Long enough to avoid Nixie tube bluring
+    add_repeating_timer_ms(-7, Repeating_Timer_Callback, NULL, &timer);         // 7ms - Short enough to avoid Nixie tube flicker
+                                                                                //       Long enough to avoid Nixie tube bluring
 
-    while (true) {                                                                  // Infinite loop to print the current rotation
+    my_encoder.set_Frequency(100);                                              // Default: 100Hz
+    my_encoder.set_WaveForm(0);                                                 // Default: Sine wave
+    my_encoder.set_Level(50);                                                   // Default: 50%
+    UpdateReq = 0b0111;                                                         // Set flags to load all default values
+
+    while (true) {                                                              // Infinite loop to print the current rotation
         if (UpdateReq) {
         // Falls through here when any of the rotary encoder values change...
             if (UpdateReq & 0b010) {                                            // Frequency has changed
@@ -406,7 +402,6 @@ int main() {
                 }
 //              printf("Rotation: %03d - SM Div: %8.4f - SM Clk: %06.0gHz - Fout: %3.0fHz\n",temp, DAC_div, DAC_freq, DAC_freq/256);
                 printf("Frequency: %03d Hz\n",temp);
-                LastFrequency = temp;
                 NixieBuffer[0] = temp % 10 ;                                    // First Nixie ( 1's )
                 temp /= 10 ;                                                    // finished with temp, so ok to trash it. temp=>10's
                 NixieBuffer[1] = temp % 10 ;                                    // Second Nixie ( 10's )
@@ -416,7 +411,6 @@ int main() {
             if (UpdateReq & 0b100) {                                            // Waveform has changed
                 temp  = my_encoder.get_WaveForm();
                 WaveForm_update(temp);
-                LastWaveForm = temp;
                 NixieBuffer[0] = temp % 10 ;                                    // First Nixie ( 1's )
                 temp /= 10 ;                                                    // finished with temp, so ok to trash it. temp=>10's
                 NixieBuffer[1] = temp % 10 ;                                    // Second Nixie ( 10's )
@@ -426,7 +420,6 @@ int main() {
             if (UpdateReq & 0b001) {                                            // Level has changed
                 temp  = my_encoder.get_Level();
                 printf("Level: %02d\n",temp);
-                LastLevel = temp;
                 NixieBuffer[0] = temp % 10 ;                                    // First Nixie ( 1's )
                 temp /= 10 ;                                                    // finished with temp, so ok to trash it. temp=>10's
                 NixieBuffer[1] = temp % 10 ;                                    // Second Nixie ( 10's )
