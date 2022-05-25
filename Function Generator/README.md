@@ -1,5 +1,5 @@
 ****(Work in progress)****
-# Code to create a Function Generator using a RPI pico. #
+# Function Generator on a PI Pico. #
 
 * Development + Debug environment:
   * VSCode on Win 7
