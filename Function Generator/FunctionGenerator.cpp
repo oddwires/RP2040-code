@@ -5,18 +5,25 @@
 #include "hardware/irq.h"
 #include "hardware/clocks.h"
 #include "hardware/dma.h"
+#include "hardware/spi.h"
 #include "rotary_encoder.pio.h"
 #include "blink.pio.h"
 #include "FastDAC.pio.h"
 #include "SlowDAC.pio.h"
 
-#define sine_table_size 256         // Number of samples per period in sine table
-#define SW_2way_1       13          // GPIO connection
-#define SW_3way_1       14          // GPIO connection
-#define SW_3way_2       15          // GPIO connection
+#define sine_table_size 256                             // Number of samples per period in sine table
+#define SW_2way_1       13                              // GPIO connection
+#define SW_3way_1       14                              // GPIO connection
+#define SW_3way_2       15                              // GPIO connection
+// SPI connections...
+#define SPI_PORT spi1                                   // Port #1
+                                                        // PICO                                      MCP41010
+#define PIN_SCK  10                                     // GPIO 10 (pin 14) ->   SCK/spi1_sclk   ->  SCK (pin 2)
+#define PIN_MOSI 11                                     // GPIO 11 (pin 15) ->   MOSI/spi1_tx    ->  SI  (pin 3)
+#define PIN_CS   12                                     // GPIO 12 (pin 16) ->   Chip select     ->  CS  (pin 1)
 
 // Global variables...
-int SW_2way, Last_SW_2way, SW_3way, Last_SW_3way, ScanCtr, NixieVal, Frequency;
+int SW_2way, Last_SW_2way, SW_3way, Last_SW_3way, ScanCtr, NixieVal, ScaledVal, Frequency;
 int UpdateReq;                                      // Flag from Rotary Encoder to main loop indicating a value has changed
 
 int DAC[5]              = { 2, 3, 4, 5, 6 };        // DAC ports                                - DAC0=>2  DAC4=>6
@@ -143,7 +150,7 @@ void WriteCathodes (int Data) {
 }
 
 bool Repeating_Timer_Callback(struct repeating_timer *t) {
-    // Scans the Nixie Anodes, and transfers data from the Nixie Buffers to the Cathodes.
+// Scans the Nixie Anodes, and transfers data from the Nixie Buffers to the Cathodes.
     switch (ScanCtr) {
         case 0:
             gpio_put(NixieAnodes[2], 0) ;                               // Turn off previous anode
@@ -254,6 +261,28 @@ void WaveForm_update (int _value) {
     NixieBuffer[2] = 10 ;                                           // Blank Third Nixie ( 100's )
 }
 
+static inline void cs_select() {
+    asm volatile("nop \n nop \n nop");
+    gpio_put(PIN_CS, 0);                                                        // Active low
+    asm volatile("nop \n nop \n nop");
+}
+
+static inline void cs_deselect() {
+    asm volatile("nop \n nop \n nop");
+    gpio_put(PIN_CS, 1);
+    asm volatile("nop \n nop \n nop");
+}
+
+static void MCP41010_write(int _data) {
+// Formats and trnsmits 16 bit data word to the MCP41010 digital potentiometer...
+    uint8_t buff[2];
+    buff[0] = 0x11;                                                             // Control byte: Write to potentiometer #1
+    buff[1] = _data;                                                            // Data byte
+    cs_select();
+    spi_write_blocking(SPI_PORT, buff, 2);
+    cs_deselect();
+}
+
 int main() {
     static const float blink_freq = 16000;                                      // Reduce SM clock to keep flash visible...
     float blink_div = (float)clock_get_hz(clk_sys) / blink_freq;                //   ... calculate the required blink SM clock divider
@@ -264,37 +293,47 @@ int main() {
     set_sys_clock_khz(280000, true);                                            // Overclocking the core by a factor of 2 allows 1MHz from DAC
     stdio_init_all();                                                           // needed for printf
 
+// This example will use SPI0 at 0.5MHz.
+    spi_init(SPI_PORT, 500 * 1000);
+    gpio_set_function(PIN_SCK, GPIO_FUNC_SPI);
+    gpio_set_function(PIN_MOSI, GPIO_FUNC_SPI);
+
 // Set up the GPIO pins...
     const uint Onboard_LED = PICO_DEFAULT_LED_PIN;                              // Debug use - intialise the Onboard LED...
     gpio_init(Onboard_LED);
     gpio_set_dir(Onboard_LED, GPIO_OUT);
-    // Initialise the Nixie cathodes...
+// Initialise the Nixie cathodes...
     for ( uint i = 0; i < sizeof(NixieCathodes) / sizeof( NixieCathodes[0]); i++ ) {
         gpio_init(NixieCathodes[i]);
         gpio_set_dir(NixieCathodes[i], GPIO_OUT);                               // Set as output
     }
-    // Initialise the Nixe anodes...
+// Initialise the Nixe anodes...
     for ( uint i = 0; i < sizeof(NixieAnodes) / sizeof( NixieAnodes[0]); i++ ) {
         gpio_init(NixieAnodes[i]);
         gpio_set_dir(NixieAnodes[i], GPIO_OUT);                                 // Set as output
     }
-    // Initialise the rotary encoder...
+// Initialise the rotary encoder...
     for ( uint i = 0; i < sizeof(RotaryEncoder) / sizeof( EncoderPorts[0]); i++ ) {
         gpio_init(EncoderPorts[i]);
         gpio_set_dir(EncoderPorts[i], GPIO_IN);                                 // Set as input
         gpio_pull_up(EncoderPorts[i]);                                          // Enable pull up
     }
-    // Initialise the 2-way switch inputs...
+// Initialise the 2-way switch inputs...
     gpio_init(SW_2way_1);
     gpio_set_dir(SW_2way_1, GPIO_IN);
     gpio_pull_up(SW_2way_1);
-    // Initialise the 3-way switch inputs...
+// Initialise the 3-way switch inputs...
     gpio_init(SW_3way_1);
     gpio_set_dir(SW_3way_1, GPIO_IN);
     gpio_pull_up(SW_3way_1);
     gpio_init(SW_3way_2);
     gpio_set_dir(SW_3way_2, GPIO_IN);
     gpio_pull_up(SW_3way_2);
+
+// SPI chip select is active-low, so we'll initialise it to a driven-high state...
+    gpio_init(PIN_CS);
+    gpio_set_dir(PIN_CS, GPIO_OUT);
+    gpio_put(PIN_CS, 1);
 
     RotaryEncoder my_encoder(16, rotary_freq);                                  // the A of the rotary encoder is connected to GPIO 16, B to GPIO 17
 
@@ -467,7 +506,9 @@ int main() {
             }
             if (UpdateReq & 0b001) {                                            // Level has changed
                 NixieVal  = my_encoder.get_Level();
-                printf("Level: %02d\n",NixieVal);
+                ScaledVal = NixieVal*255/99;                                    // Scale the level. Display: 0->99 - Potentiometer: 0->255
+                printf("Level: %02d%% Level(Abs): %d\n",NixieVal,ScaledVal);
+                MCP41010_write(ScaledVal);                                      // Send over SPI to digital potentiometer
                 NixieBuffer[0] = NixieVal % 10 ;                                // First Nixie ( 1's )
                 NixieVal /= 10 ;                                                // finished with teNixieValmp, so ok to trash it. NixieVal=>10's
                 NixieBuffer[1] = NixieVal % 10 ;                                // Second Nixie ( 10's )
