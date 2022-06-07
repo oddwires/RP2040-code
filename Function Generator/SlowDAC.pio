@@ -20,7 +20,6 @@ void pio_SlowDAC_program_init(PIO pio, uint sm, uint offset, uint pin) {
     for (uint i=2; i<10; i++) { pio_gpio_init(pio, i); }
     pio_sm_set_consecutive_pindirs(pio, sm, 2, 8, true); 
     pio_sm_config c = pio_SlowDAC_program_get_default_config(offset);
-//  sm_config_set_clkdiv(&c, div);                                   // Set the clock divider for the state machine
     sm_config_set_out_pins(&c, 2, 8);
     pio_sm_init(pio, sm, offset, &c);
     pio_sm_set_enabled(pio, sm, true);
