@@ -1,3 +1,19 @@
+// Set GPIO pin assignment through compile options...
+#define DEBUG                                           // Assign pins 1 and 2 to the RS-232, and direct debug output through this port
+                                                        // Note: This disables the input ports on these pins (GPIO_0 and GPIO_1).
+#define EIGHTBITDAC                                     // Assign pins 11 and 12 to drive the DAC.
+                                                        // Note: This disables the input ports on these pins (GPIO_8 and GPIO_9).
+// End of compile options
+
+// OK, so the C++ preprocessor can't do any maths, so we have to manually expand the above selection to match the X and Y resolution...
+#ifdef EIGHTBITDAC
+#define DAC_Bits          8                             // Width of hardware DAC in bits.
+#define BitMapSize      256                             // Match X to Y resolution
+#else
+#define DAC_Bits          6                             // Width of hardware DAC in bits.
+#define BitMapSize       64                             // Match X to Y resolution
+#endif
+
 #include <stdio.h>
 #include <math.h>
 #include <cstring>
@@ -12,17 +28,15 @@
 #include "FastDAC.pio.h"
 #include "SlowDAC.pio.h"
 
-#define sine_table_size 256                             // Number of samples per period in sine table
-#define WaveformCount    10                             // Number of different waveform options
-#define SW_2way_1        13                             // GPIO connection
-#define SW_3way_1        14                             // GPIO connection
-#define SW_3way_2        15                             // GPIO connection
-// SPI connections...
-#define SPI_PORT spi1                                   // Port #1
-                                                        // PICO                                      MCP41010
-#define PIN_SCK  10                                     // GPIO 10 (pin 14) ->   SCK/spi1_sclk   ->  SCK (pin 2)
-#define PIN_MOSI 11                                     // GPIO 11 (pin 15) ->   MOSI/spi1_tx    ->  SI  (pin 3)
-#define PIN_CS   12                                     // GPIO 12 (pin 16) ->   Chip select     ->  CS  (pin 1)
+#define WaveformCount   10                              // Number of different waveform options
+#define SW_2way_1       13                              // GPIO connection
+#define SW_3way_1       14                              // GPIO connection
+#define SW_3way_2       15                              // GPIO connection
+// SPI connections...                                      PICO             ->                   ->  MCP41010
+#define PIN_SCK         10                              // GPIO 10 (pin 14) ->   SCK/spi1_sclk   ->  SCK (pin 2)
+#define PIN_MOSI        11                              // GPIO 11 (pin 15) ->   MOSI/spi1_tx    ->  SI  (pin 3)
+#define PIN_CS          12                              // GPIO 12 (pin 16) ->   Chip select     ->  CS  (pin 1)
+#define SPI_PORT        spi1                            // Port #1
 
 #define Slow            0
 #define Fast            1
@@ -30,21 +44,20 @@
 // Global variables...
 int SW_2way, Last_SW_2way, SW_3way, Last_SW_3way, ScanCtr, NixieVal, ScaledVal, Frequency;
 int UpdateReq;                                      // Flag from Rotary Encoder to main loop indicating a value has changed
+const uint32_t transfer_count = BitMapSize ;        // Number of DMA transfers per event
 
-int DAC[5]              = { 2, 3, 4, 5, 6 };        // DAC ports                                - DAC0=>2  DAC4=>6
 int NixieCathodes[4]    = { 18, 19, 20, 21 };       // GPIO ports connecting to Nixie Cathodes  - Data0=>18     Data3=>21
 int NixieAnodes[3]      = { 22, 26, 27 };           // GPIO ports connecting to Nixie Anodes    - Anode0=>22    Anode2=>27
 int EncoderPorts[2]     = { 16, 17 };               // GPIO ports connecting to Rotary Encoder  - 16=>Clock     17=>Data
 int NixieBuffer[3]      = { 6, 7, 8 };              // Values to be displayed on Nixie tubes    - Tube0=>1's
                                                     //                                          - Tube1=>10's
                                                     //                                          - Tube2=>100's
-int raw_sin[sine_table_size] ;
-unsigned short DAC_data[sine_table_size] __attribute__ ((aligned(2048))) ;          // Align DAC data
-const uint32_t transfer_count = sine_table_size ;                                   // Number of DMA transfers per event
+int raw_sin[BitMapSize] ;
+unsigned short DAC_data[BitMapSize] __attribute__ ((aligned(2048))) ;           // Align DAC data
 
 void blink_pin_forever(PIO pio, uint sm, uint offset, uint pin, uint freq);
 
-class RotaryEncoder {                                                               // class to initialise a state machine to read 
+class RotaryEncoder {                                                           // class to initialise a state machine to read 
 public:                                                                             //    the rotation of the rotary encoder
     // constructor
     // rotary_encoder_A is the pin for the A of the rotary encoder.
@@ -69,7 +82,9 @@ public:                                                                         
                                                                                     // Note: the program starts after the jump table -> initial_pc = 16
         pio_sm_set_enabled(pio, sm, true);                                          // enable the state machine
 
+        #ifdef DEBUG
         printf("PIO:0 SM:%d - Rotary encoder' @ %dHz\n\n", sm, freq);
+        #endif
     }
 
     void set_Frequency(int _Frequency) { Frequency = _Frequency; }
@@ -128,16 +143,18 @@ private:
     static int Level;
 };
 // Global Var...
-int RotaryEncoder::Frequency;                        // Initialize static members of class Rotary_encoder...
+int RotaryEncoder::Frequency;                                                   // Initialize static members of class Rotary_encoder...
 int RotaryEncoder::WaveForm;
 int RotaryEncoder::Level;
 
-class blink_forever {                                                               // Class to initialise a state macne to blink a GPIO pin
+class blink_forever {                                                           // Class to initialise a state macne to blink a GPIO pin
 public:
     blink_forever(PIO pio, uint sm, uint offset, uint pin, uint freq, uint blink_div) {
         blink_program_init(pio, sm, offset, pin, blink_div);
         pio_sm_set_enabled(pio, sm, true);
+        #ifdef DEBUG
         printf("PIO:0 SM:%d - Blink @ %dHz\n", sm, freq);
+        #endif
     }
 };
 
@@ -151,8 +168,8 @@ public:
     // be kept within range.s    
     DMAtoDAC_channel() {
         PIO pio = pio1;
-        StateMachine[Fast] = Single_DMA_FIFO_SM_GPIO_DAC(pio,Fast);            // Create the Fast DAC channel (frequencies: 17Hz to 999KHz)
-        StateMachine[Slow] = Single_DMA_FIFO_SM_GPIO_DAC(pio,Slow);            // Create the Slow DAC channel (frequencies: 0Hz to 16Hz)
+        StateMachine[Fast] = Single_DMA_FIFO_SM_GPIO_DAC(pio,Fast);             // Create the Fast DAC channel (frequencies: 17Hz to 999KHz)
+        StateMachine[Slow] = Single_DMA_FIFO_SM_GPIO_DAC(pio,Slow);             // Create the Slow DAC channel (frequencies: 0Hz to 16Hz)
     }
 
 public:
@@ -175,7 +192,7 @@ public:
             pio_SlowDAC_program_init(_pio, _StateMachine, _offset, 2);
             strcpy(_name,"Slow");
         }
-        //  Get 2 x free DMA channels for the Fast DAC - panic() if there are none
+        //  Get 2 x free DMA channels for the DAC - panic() if there are none
         int ctrl_chan = dma_claim_unused_channel(true);
         int data_chan = dma_claim_unused_channel(true);
 
@@ -198,29 +215,35 @@ public:
         //  32 bit transfers. Read address increments after each transfer.
         fc = dma_channel_get_default_config(data_chan);
         channel_config_set_transfer_data_size(&fc, DMA_SIZE_32);                // 32-bit txfers
-        channel_config_set_read_increment(&fc, true);                           // increment the read adddress, don't increment write address
-        channel_config_set_write_increment(&fc, false);
+        channel_config_set_read_increment(&fc, true);                           // increment the read adddress
+        channel_config_set_write_increment(&fc, false);                         // don't increment write address
         channel_config_set_dreq(&fc, pio_get_dreq(pio, _StateMachine, true));   // Transfer when PIO SM TX FIFO has space
         channel_config_set_chain_to(&fc, ctrl_chan);                            // chain to the controller DMA channel
-        channel_config_set_ring(&fc, false, 9);                                 // 1 << 9 byte boundary on read ptr    
-                                                                                // set wrap boundary. This is why we needed alignment!
+#ifdef EIGHTBITDAC        
+        channel_config_set_ring(&fc, false, 9);                                 // 8 bit DAC 1<<9 byte boundary on read ptr. This is why we needed alignment!
+#else
+        channel_config_set_ring(&fc, false, 7);                                 // 6 bit DAC 1<<7 byte boundary on read ptr. This is why we needed alignment!
+#endif
         dma_channel_configure(
             data_chan,                                                          // Channel to be configured
             &fc,                                                                // The configuration we just created
             &pio->txf[_StateMachine],                                           // Write to FIFO
             DAC_data,                                                           // The initial read address (AT NATURAL ALIGNMENT POINT)
-            sine_table_size,                                                    // Number of transfers; in this case each is 2 byte.
+            BitMapSize,                                                         // Number of transfers; in this case each is 2 byte.
             false                                                               // Don't start immediately.
         );
-        // Note: Both DMA channels are permanently running. It is the State Machines which are enabled/disabled.
+        // Note: Both DMA channels are left permanently running. The active channel is selected by enabling/disabling the 
+        // associated State Machine.
         dma_start_channel_mask(1u << ctrl_chan);                                // Start the control DMA channel
 
+        #ifdef DEBUG
         printf("%s DMA channel:\n", _name);
         printf("    PIO:              %d\n",_pioNum);
         printf("    State machine:    %d\n",_StateMachine);
         printf("    Program offset:   %d\n",_offset);
         printf("    DMA Ctrl channel: %d\n",ctrl_chan);
         printf("    DMA Data channel: %d\n",data_chan);
+        #endif
 
         return(_StateMachine);
 }
@@ -230,23 +253,29 @@ void Set_Frequency(int _frequency){
     // If DAC_div exceeds 2^16 (65,536), the registers wrap around, and the State Machine clock will be incorrect.
     // A slow version of the DAC State Machine is used for frequencies below 17Hz, allowing the value of DAC_div to
     // be kept within range.
-    float DAC_freq = _frequency * sine_table_size;                              // Target frequency...
-    float DAC_div = (float)clock_get_hz(clk_sys) / DAC_freq;                    // ...calculate the PIO clock divider required for the given Target frequency
-    float Fout = (float)clock_get_hz(clk_sys) / (sine_table_size * DAC_div);    // Actual output frequency
-    if (_frequency >= 17) {                                                     // Fast DAC ( Frequency range from 17Hz to 999Khz )
+    float DAC_freq = _frequency * BitMapSize;                                   // Target frequency...
+    float DAC_div = 2 * (float)clock_get_hz(clk_sys) / DAC_freq;                // ...calculate the PIO clock divider required for the given Target frequency
+    float Fout = 2 * (float)clock_get_hz(clk_sys) / (BitMapSize * DAC_div);     // Actual output frequency
+    if (_frequency >= 34) {                                                     // Fast DAC ( Frequency range from 34Hz to 999Khz )
         pio_sm_set_clkdiv(pio, StateMachine[Fast], DAC_div);                    // Set the State Machine clock speed
         pio_sm_set_enabled(pio, StateMachine[Fast], true);                      // Fast State Machine active
         pio_sm_set_enabled(pio, StateMachine[Slow], false);                     // Slow State Machine inactive
+        #ifdef DEBUG        
         printf("Rotation: %03d - Fast SM - SM Div: %8.4f - SM Clk: %07.0gHz - Fout: %.1f",_frequency, DAC_div, DAC_freq, Fout);
+        #endif
     } else {                                                                    // Slow DAC ( 1Hz=>16Hz )
-        DAC_div = DAC_div / 32;                                                 // Adjust DAC_div to keep within useable range
-        DAC_freq = DAC_freq * 32;
+        DAC_div = DAC_div / 64;                                                 // Adjust DAC_div to keep within useable range
+        DAC_freq = DAC_freq * 64;
         pio_sm_set_clkdiv(pio, StateMachine[Slow], DAC_div);                    // Set the State Machine clock speed
         pio_sm_set_enabled(pio, StateMachine[Fast], false);                     // Fast State Machine inactive
         pio_sm_set_enabled(pio, StateMachine[Slow], true);                      // Slow State Machine active
+        #ifdef DEBUG        
         printf("Rotation: %03d - Slow SM - SM Div: %8.4f - SM Clk: %07.0gHz - Fout: %.1f",_frequency, DAC_div, DAC_freq, Fout);
+        #endif
     }
+    #ifdef DEBUG    
     if (_frequency < 1000) { printf("Hz\n"); } else { printf("KHz\n"); }
+    #endif
 }
 
 //static int offset;
@@ -294,100 +323,119 @@ bool Repeating_Timer_Callback(struct repeating_timer *t) {
 
 void WaveForm_update (int _value) {
     int i;
+    int offset = BitMapSize/2 - 1;                                                          // Shift sine waves up above X axis
     const float _2Pi = 6.283;                                                               // 2*Pi
     float a,b,c,d,e;
     switch (_value) {
         case 0:
+            #ifdef DEBUG
             printf("Waveform: %03d - Sine: Fundamental\n",_value);
-            for (i=0; i<(sine_table_size); i++) {
-                DAC_data[i] = (int)(127 * sin((float)i*_2Pi/(float)sine_table_size) + 127);
+            #endif
+            for (i=0; i<(BitMapSize); i++) {
+                DAC_data[i] = (int)(offset * sin((float)i*_2Pi/(float)BitMapSize) + offset);
             }        
             break;
         case 1:
+            #ifdef DEBUG
             printf("Waveform: %03d - Sine: Fundamental + harmonic 3\n",_value);
-            for (i=0; i<(sine_table_size); i++) {
-                a = 127 * sin((float)_2Pi*i / (float)sine_table_size);                     // Fundamental frequency
-                b = 127/3 * sin((float)_2Pi*3*i / (float)sine_table_size);                 // 3rd harmonic
-                DAC_data[i] = (int)(a+b)+127;                                              // Sum harmonics and add vertical offset
+            #endif
+            for (i=0; i<(BitMapSize); i++) {
+                a = offset * sin((float)_2Pi*i / (float)BitMapSize);                           // Fundamental frequency
+                b = offset/3 * sin((float)_2Pi*3*i / (float)BitMapSize);                       // 3rd harmonic
+                DAC_data[i] = (int)(a+b)+offset;                                               // Sum harmonics and add vertical offset
             }        
             break;
         case 2:
+            #ifdef DEBUG
             printf("Waveform: %03d - Sine: Fundamental + harmonics 3 and 5\n",_value);
-            for (i=0; i<(sine_table_size); i++) {
-                a = 127 * sin((float)_2Pi*i / (float)sine_table_size);                     // Fundamental frequency
-                b = 127/3 * sin((float)_2Pi*3*i / (float)sine_table_size);                 // 3rd harmonic
-                c = 127/5 * sin((float)_2Pi*5*i / (float)sine_table_size);                 // 5th harmonic
-                DAC_data[i] = (int)(a+b+c)+127;                                            // Sum harmonics and add vertical offset
+            #endif
+            for (i=0; i<(BitMapSize); i++) {
+                a = offset * sin((float)_2Pi*i / (float)BitMapSize);                           // Fundamental frequency
+                b = offset/3 * sin((float)_2Pi*3*i / (float)BitMapSize);                       // 3rd harmonic
+                c = offset/5 * sin((float)_2Pi*5*i / (float)BitMapSize);                       // 5th harmonic
+                DAC_data[i] = (int)(a+b+c)+offset;                                             // Sum harmonics and add vertical offset
             }        
             break;
         case 3:
+            #ifdef DEBUG
             printf("Waveform: %03d - Sine: Fundamental + harmonics 3,5 and 7\n",_value);
-            for (i=0; i<(sine_table_size); i++) {
-                a = 127 * sin((float)_2Pi*i / (float)sine_table_size);                     // Fundamental frequency
-                b = 127/3 * sin((float)_2Pi*3*i / (float)sine_table_size);                 // 3rd harmonic
-                c = 127/5 * sin((float)_2Pi*5*i / (float)sine_table_size);                 // 5th harmonic
-                d = 127/7 * sin((float)_2Pi*7*i / (float)sine_table_size);                 // 7th harmonic
-                DAC_data[i] = (int)(a+b+c+d)+127;                                          // Sum harmonics and add vertical offset
+            #endif
+            for (i=0; i<(BitMapSize); i++) {
+                a = offset * sin((float)_2Pi*i / (float)BitMapSize);                           // Fundamental frequency
+                b = offset/3 * sin((float)_2Pi*3*i / (float)BitMapSize);                       // 3rd harmonic
+                c = offset/5 * sin((float)_2Pi*5*i / (float)BitMapSize);                       // 5th harmonic
+                d = offset/7 * sin((float)_2Pi*7*i / (float)BitMapSize);                       // 7th harmonic
+                DAC_data[i] = (int)(a+b+c+d)+offset;                                           // Sum harmonics and add vertical offset
             }        
             break;
         case 4:
+            #ifdef DEBUG
             printf("Waveform: %03d - Sine: Fundamental + harmonic 3, 5, 7 and 9\n",_value);
-            for (i=0; i<(sine_table_size); i++) {
-                a = 127 * sin((float)_2Pi*i / (float)sine_table_size);                     // Fundamental frequency
-                b = 127/3 * sin((float)_2Pi*3*i / (float)sine_table_size);                 // 3rd harmonic
-                c = 127/5 * sin((float)_2Pi*5*i / (float)sine_table_size);                 // 5th harmonic
-                d = 127/7 * sin((float)_2Pi*7*i / (float)sine_table_size);                 // 7th harmonic
-                e = 127/9 * sin((float)_2Pi*9*i / (float)sine_table_size);                 // 9th harmonic
-                DAC_data[i] = (int)(a+b+c+d+e)+127;                                        // Sum harmonics and add vertical offset
+            #endif
+            for (i=0; i<(BitMapSize); i++) {
+                a = offset * sin((float)_2Pi*i / (float)BitMapSize);                           // Fundamental frequency
+                b = offset/3 * sin((float)_2Pi*3*i / (float)BitMapSize);                       // 3rd harmonic
+                c = offset/5 * sin((float)_2Pi*5*i / (float)BitMapSize);                       // 5th harmonic
+                d = offset/7 * sin((float)_2Pi*7*i / (float)BitMapSize);                       // 7th harmonic
+                e = offset/9 * sin((float)_2Pi*9*i / (float)BitMapSize);                       // 9th harmonic
+                DAC_data[i] = (int)(a+b+c+d+e)+offset;                                         // Sum harmonics and add vertical offset
             }        
             break;
-        case 5: printf("Waveform: %03d - Square\n",_value);
-            for (i=0; i<(sine_table_size/2); i++){
+        case 5: 
+            #ifdef DEBUG
+            printf("Waveform: %03d - Square\n",_value);
+            #endif
+            for (i=0; i<(BitMapSize/2); i++){
                 DAC_data[i] = 0;                                                            // First half:  low
-                DAC_data[i+sine_table_size/2] = 255;                                        // Second half: high
+                DAC_data[i+BitMapSize/2] = 255;                                             // Second half: high
             }
             break;
-        case 6: printf("Waveform: %03d - Sawtooth (falling)\n",_value);
-            for (i=0; i<(sine_table_size); i++) {
+        case 6: 
+            #ifdef DEBUG
+            printf("Waveform: %03d - Sawtooth (falling)\n",_value);
+            #endif
+            for (i=0; i<(BitMapSize); i++) {
                 DAC_data[i] = 32-i;
             }
             break;
         case 7:
+            #ifdef DEBUG
             printf("Waveform: %03d - Sawtooth (offset + falling)\n",_value);
-            for (i=0; i<(sine_table_size/4); i++) {
+            #endif
+            for (i=0; i<(BitMapSize/4); i++) {
                 DAC_data[i] = i*4;                                                          // First quarter slope up, gradient = 4
-                DAC_data[i+sine_table_size*1/4] = 255-i*4/3;                                // Second quarter slope down, gradient = 4/3
-                DAC_data[i+sine_table_size*2/4] = 170-i*4/3;                                // Third quarter slope down, gradient = 4/3
-                DAC_data[i+sine_table_size*3/4] =  85-i*4/3;                                // Last quarter slope down, gradient = 4/3
+                DAC_data[i+BitMapSize*1/4] = 255-i*4/3;                                     // Second quarter slope down, gradient = 4/3
+                DAC_data[i+BitMapSize*2/4] = 170-i*4/3;                                     // Third quarter slope down, gradient = 4/3
+                DAC_data[i+BitMapSize*3/4] =  85-i*4/3;                                     // Last quarter slope down, gradient = 4/3
             }
             break;
-        case 8: printf("Waveform: %03d - Triangle\n",_value);
-            for (i=0; i<(sine_table_size/2); i++){
+        case 8: 
+            #ifdef DEBUG
+            printf("Waveform: %03d - Triangle\n",_value);
+            #endif
+            for (i=0; i<(BitMapSize/2); i++){
                 DAC_data[i] = i*2;                                                          // First half:  slope up
-                DAC_data[i+sine_table_size/2] = 255-i*2;                                    // Second half: slope down
+                DAC_data[i+BitMapSize/2] = 255-i*2;                                         // Second half: slope down
             }
             break;
         case 9:
+            #ifdef DEBUG
             printf("Waveform: %03d - Sawtooth (offset + rising)\n",_value);
-            for (i=0; i<(sine_table_size/4); i++) {
+            #endif
+            for (i=0; i<(BitMapSize/4); i++) {
                 DAC_data[i]                     =    i*4/3;                                 // First quarter slope up, gradient = 4/3
-                DAC_data[i+sine_table_size*1/4] =  85+i*4/3;                                // Second quarter slope down,, gradient = 4/3
-                DAC_data[i+sine_table_size*2/4] = 170+i*4/3;                                // Third quarter slope down, gradient = 4/3
-                DAC_data[i+sine_table_size*3/4] = 255-i*4;                                  // Last quarter slope down,, gradient = 4
+                DAC_data[i+BitMapSize*1/4] =  85+i*4/3;                                     // Second quarter slope down,, gradient = 4/3
+                DAC_data[i+BitMapSize*2/4] = 170+i*4/3;                                     // Third quarter slope down, gradient = 4/3
+                DAC_data[i+BitMapSize*3/4] = 255-i*4;                                       // Last quarter slope down,, gradient = 4
             }
             break;
         case 10:
             printf("Waveform: %03d - Sawtooth (rising)\n",_value);
-            for (i=0; i<(sine_table_size); i++) {
+            for (i=0; i<(BitMapSize); i++) {
                 DAC_data[i] = i;
             }
             break;
     }
-
-/* DEBUG - CONFIRM MEMORY ALIGNMENT...
-    printf("\nConfirm memory alignment...\nBeginning: %x", &DAC_data[0]);
-    printf("\nFirst: %x", &DAC_data[1]);
-    printf("\nSecond: %x\n\n", &DAC_data[2]); */
 
     NixieBuffer[0] = _value % 10 ;                                  // First Nixie ( 1's )
     _value /= 10 ;                                                  // finished with _value, so ok to trash it. _value=>10's
@@ -423,9 +471,11 @@ int main() {
     float blink_div = (float)clock_get_hz(clk_sys) / blink_freq;                //   ... calculate the required blink SM clock divider
     static const float rotary_freq = 16000;                                     // Clock speed reduced to eliminate rotary encoder jitter...
     float rotary_div = (float)clock_get_hz(clk_sys) / rotary_freq;              //... then calculate the required rotary encoder SM clock divider
-
+// TBD - clock speed should be set before the previous statements.
     set_sys_clock_khz(280000, true);                                            // Overclocking the core by a factor of 2 allows 1MHz from DAC
+#ifdef DEBUG
     stdio_init_all();                                                           // needed for printf
+#endif
 
 // This example will use SPI0 at 0.5MHz.
     spi_init(SPI_PORT, 500 * 1000);
@@ -472,9 +522,13 @@ int main() {
     RotaryEncoder my_encoder(16, rotary_freq);                                      // the A of the rotary encoder is connected to GPIO 16, B to GPIO 17
 
 // Confirm memory alignment
-    printf("\nConfirm memory alignment...\nBeginning: %x", &DAC_data[0]);
+    #ifdef DEBUG
+    printf("Confirm memory alignment...\nBeginning: %x", &DAC_data[0]);
     printf("\nFirst: %x", &DAC_data[1]);
-    printf("\nSecond: %x\n\n", &DAC_data[2]);
+    printf("\nSecond: %x\n", &DAC_data[2]);
+    int tmp = BitMapSize;
+    printf("Size (bytes): %d\n\n",tmp);
+    #endif
 
 // Set up the State machines...
     PIO pio = pio0;
@@ -487,9 +541,9 @@ int main() {
 // If the delay is > 0 then this is the delay between the previous callback ending and the next starting. If the delay is negative
 // then the next call to the callback will be exactly 7ms after the start of the call to the last callback.
   struct repeating_timer timer;
-    add_repeating_timer_ms(-7, Repeating_Timer_Callback, NULL, &timer);             // 7ms - Short enough to avoid Nixie tube flicker
-                                                                                    //       Long enough to avoid Nixie tube bluring
-    my_encoder.set_Frequency(100);                                                  // Default: 100Hz
+    add_repeating_timer_ms(-7, Repeating_Timer_Callback, NULL, &timer);             // 7ms - Short enough to prevent Nixie tube flicker
+                                                                                    //       Long enough to prevent Nixie tube bluring
+    my_encoder.set_Frequency(50);                                                   // Default: 100Hz
     my_encoder.set_WaveForm(0);                                                     // Default: Sine wave
     my_encoder.set_Level(50);                                                       // Default: 50%
     UpdateReq = 0b0111;                                                             // Set flags to load all default values
@@ -521,7 +575,9 @@ int main() {
             if (UpdateReq & 0b001) {                                                // Level has changed
                 NixieVal  = my_encoder.get_Level();
                 ScaledVal = NixieVal*255/99;                                        // Scale the level. Display: 0->99 - Potentiometer: 0->255
+                #ifdef DEBUG
                 printf("Level: %02d%% Level(Abs): %d\n",NixieVal,ScaledVal);
+                #endif
                 MCP41010_write(ScaledVal);                                          // Send over SPI to digital potentiometer
                 NixieBuffer[0] = NixieVal % 10 ;                                    // First Nixie ( 1's )
                 NixieVal /= 10 ;                                                    // finished with teNixieValmp, so ok to trash it. NixieVal=>10's
@@ -534,8 +590,10 @@ int main() {
         // Get 2 way toggle switch status...
         SW_2way = gpio_get(SW_2way_1);                                              // True=KHz, False=Hz
         if (SW_2way != Last_SW_2way) {
+            #ifdef DEBUG
             if (SW_2way == 0) { printf("Frequency: Hz\n");  }
             else              { printf("Frequency: KHz\n"); }
+            #endif
             Last_SW_2way = SW_2way;
             UpdateReq = 0b010;                                                      // Force frequency update to load new value to DAC + SM
         }
@@ -545,13 +603,17 @@ int main() {
         if (SW_3way != Last_SW_3way) {
             switch (SW_3way) {
                 case 0b010:                                                         // SW=>Top position
+                    #ifdef DEBUG
                     printf("Frequency: %03d Hz\n",my_encoder.get_Frequency());
+                    #endif
                     break;
                 case 0b011:                                                         // SW=>Middle position
                     WaveForm_update(my_encoder.get_WaveForm());
                     break;
                 case 0b001:                                                         // SW=>Bottom position
+                    #ifdef DEBUG
                     printf("Level: %02d\n",my_encoder.get_Level());
+                    #endif
                     break;
             }
         Last_SW_3way = SW_3way;
