@@ -28,36 +28,78 @@
 #include "FastDAC.pio.h"
 #include "SlowDAC.pio.h"
 
-#define WaveformCount   10                              // Number of different waveform options
-#define SW_2way_1       13                              // GPIO connection
-#define SW_3way_1       14                              // GPIO connection
-#define SW_3way_2       15                              // GPIO connection
-// SPI connections...                                      PICO             ->                   ->  MCP41010
-#define PIN_SCK         10                              // GPIO 10 (pin 14) ->   SCK/spi1_sclk   ->  SCK (pin 2)
-#define PIN_MOSI        11                              // GPIO 11 (pin 15) ->   MOSI/spi1_tx    ->  SI  (pin 3)
-#define PIN_CS          12                              // GPIO 12 (pin 16) ->   Chip select     ->  CS  (pin 1)
-#define SPI_PORT        spi1                            // Port #1
+// Define GPIO connections...
+const uint SW0          =  0;                       // SW0+SW1 form a 3 way switch (not available when compiled with #DEBUG)
+const uint SW1          =  1;
+const uint SW2          =  8;                       // SW2+SW3 form a 3 way switch (not available when compiled with #EIGHTBITDAC)
+const uint SW3          =  9;
 
+const uint SW6          = 13;                       // Freq/Level
+const uint SW4          = 14;                       // Sine/Square/Triangle (a)
+const uint SW5          = 15;                       // Sine/Square/Triangle (b)
+const uint SW7          = 28;                       // Hz/KHz
+
+const uint EncoderClock = 16;
+const uint EncoderData  = 17;
+const uint Anode_0      = 22;                       // Nixie anodes
+const uint Anode_1      = 26;
+const uint Anode_2      = 27;
+const uint Cathode_0    = 18;                       // Nixie cathodes - connect through a 74141 Nixie driver chip, so
+const uint Cathode_1    = 19;                       // only a 4 bit data bus is implemented
+const uint Cathode_2    = 20;
+const uint Cathode_3    = 21;
+const uint Onboard_LED  = 25;                       // PICO Onboard LED
+
+                                                    // SPI connections...
+                                                    // ┌──────────────────┬─────────────────┬─────────────────────┐
+                                                    // │ PICO connection  │ SPI function    │ MCP41010 connection │
+                                                    // ├──────────────────┼─────────────────┼─────────────────────┤
+#define PIN_SCK         10                          // │ GPIO 10 (pin 14) │ SCK/spi1_sclk   │ SCK (pin 2)         │
+#define PIN_MOSI        11                          // │ GPIO 11 (pin 15) │ MOSI/spi1_tx    │ SI  (pin 3)         │
+#define PIN_CS          12                          // │ GPIO 12 (pin 16) │ Chip select     │ CS  (pin 1)         │
+                                                    // └──────────────────┴─────────────────┴─────────────────────┘
+#define SPI_PORT        spi1                        // Pico SPI port #1
+
+// Define useful constants...
 #define Slow            0
 #define Fast            1
+#define _Sine_          0
+#define _Square_        1
+#define _Triangle_      2
+#define _Frequency_     0                           // For use with RotaryEnc array
+#define _Level_         1
+#define _WaveForm_      2
+
+// Define GPIO lookup tables...
+#ifdef DEBUG
+// SW0 and SW1 assigned to RS-232 port...
+//const unsigned int GPIO_Inputs[] = {SW2, SW3, SW4, SW5, SW6, EncoderClock, EncoderData};
+const unsigned int GPIO_Inputs[] = {SW4, SW5, SW6, SW7, EncoderClock, EncoderData};
+const unsigned GPIO_Outputs[] = {Anode_0, Anode_1, Anode_2, Cathode_0, Cathode_1, Cathode_2, Cathode_3, PIN_CS};
+#else
+// SW0 and SW1 assigned as GPIO inputs...
+const unsigned int GPIO_Inputs[] = {SW0, SW1, SW2, SW3, SW4, SW5, SW6, SW7, EncoderClock, EncoderData};
+const unsigned GPIO_Outputs[] = {Anode_0, Anode_1, Anode_2, Cathode_0, Cathode_1, Cathode_2, Cathode_3, PIN_CS};
+#endif
 
 // Global variables...
-int SW_2way, Last_SW_2way, SW_3way, Last_SW_3way, ScanCtr, NixieVal, ScaledVal, Frequency;
-int UpdateReq;                                      // Flag from Rotary Encoder to main loop indicating a value has changed
+int FreqMultiplier, ModeSelect, WaveSelect, ScanCtr, NixieVal, ScaledVal, Frequency, UpdateReq, GPIO_count;
+uint PrevStatus;
+int WaveForm_Type = _Sine_;
+int RotaryEnc[3];                                   // Changes to the Rotary Encoder will update one of these 3 values.
+                                                    // The value to be updated is determined by the current state of the application.
 const uint32_t transfer_count = BitMapSize ;        // Number of DMA transfers per event
 
-int NixieCathodes[4]    = { 18, 19, 20, 21 };       // GPIO ports connecting to Nixie Cathodes  - Data0=>18     Data3=>21
-int NixieAnodes[3]      = { 22, 26, 27 };           // GPIO ports connecting to Nixie Anodes    - Anode0=>22    Anode2=>27
-int EncoderPorts[2]     = { 16, 17 };               // GPIO ports connecting to Rotary Encoder  - 16=>Clock     17=>Data
-int NixieBuffer[3]      = { 6, 7, 8 };              // Values to be displayed on Nixie tubes    - Tube0=>1's
+int NixieBuffer[3];                                 // Values to be displayed on Nixie tubes    - Tube0=>1's
                                                     //                                          - Tube1=>10's
                                                     //                                          - Tube2=>100's
 int raw_sin[BitMapSize] ;
 unsigned short DAC_data[BitMapSize] __attribute__ ((aligned(2048))) ;           // Align DAC data
 
 void blink_pin_forever(PIO pio, uint sm, uint offset, uint pin, uint freq);
+//class my_encoder;
 
-class RotaryEncoder {                                                           // class to initialise a state machine to read 
+class RotaryEncoder {                                                               // Class to initialise a state machine to read 
 public:                                                                             //    the rotation of the rotary encoder
     // constructor
     // rotary_encoder_A is the pin for the A of the rotary encoder.
@@ -87,67 +129,51 @@ public:                                                                         
         #endif
     }
 
-    void set_Frequency(int _Frequency) { Frequency = _Frequency; }
-    void set_WaveForm(int _WaveForm) { WaveForm = _WaveForm; }
-    void set_Level(int _Level) { Level = _Level; }
-
-    int get_Frequency(void) { return Frequency; }
-    int get_WaveForm(void) { return WaveForm; }
-    int get_Level(void) { return Level; }
-
 private:
     static void pio_irq_handler() {
-        if (pio0_hw->irq & 2) {                                                     // test if irq 0 was raised
-             switch (SW_3way) {
-                case 0b010:                                                         // Top: Frequency range 0 to 999
-                    Frequency--;
-                    if ( Frequency < 0 ) { Frequency = 999; }
-                    UpdateReq |= 0b010;                                            // Flag to update the frequency
+        if (pio0_hw->irq & 2) {                                                         // test if irq 0 was raised
+             switch (ModeSelect) {
+                case 0b001:                                                             // Top: Frequency range 0 to 999
+                    RotaryEnc[_Frequency_]--;
+                    if ( RotaryEnc[_Frequency_] < 0 ) { RotaryEnc[_Frequency_] = 999; }
+                    UpdateReq |= 0b010;                                                 // Flag to update the frequency
                     break;
-                case 0b001:                                                         // Bottom : Level range 0 to 99
-                    Level--;
-                    if ( Level < 0 ) { Level = 99; }
-                    UpdateReq |= 0b001;                                             // Flag to update the level
+                case 0b010:                                                             // Bottom : Level range 0 to 99
+                    RotaryEnc[_Level_]--;
+                    if ( RotaryEnc[_Level_] < 0 ) { RotaryEnc[_Level_] = 99; }
+                    UpdateReq |= 0b001;                                                 // Flag to update the level
                     break;
-                case 0b011:                                                         // Middle: WaveForm range 0 to 4
-                    WaveForm--;
-                    if ( WaveForm < 0 ) { WaveForm = WaveformCount; }
-                    UpdateReq |= 0b100;                                             // Flag to update the waveform
+               case 0b011:                                                              // Middle: WaveForm range 0 to 4
+                   RotaryEnc[_WaveForm_]--;
+                   if ( RotaryEnc[_WaveForm_] < 0 ) { RotaryEnc[_WaveForm_] = 99; }
+                   UpdateReq |= 0b100;                                                  // Flag to update the waveform
              }
         }
-        if (pio0_hw->irq & 1) {                                                     // test if irq 1 was raised
-             switch (SW_3way) {
-                case 0b010:                                                         // Top: Frequency range 0 to 999
-                    Frequency++;
-                    if ( Frequency > 999 ) { Frequency = 0; }
-                    UpdateReq |= 0b010;                                             // Flag to update the frequency
+        if (pio0_hw->irq & 1) {                                                         // test if irq 1 was raised
+             switch (ModeSelect) {
+                case 0b001:                                                             // Top: Frequency range 0 to 999
+                    RotaryEnc[_Frequency_]++;
+                    if ( RotaryEnc[_Frequency_] > 999 ) { RotaryEnc[_Frequency_] = 0; }
+                    UpdateReq |= 0b010;                                                 // Flag to update the frequency
                     break;
-                case 0b001:                                                         // Bottom : Level range 0 to 99
-                    Level++;
-                    if ( Level > 99 ) { Level = 0; }
-                    UpdateReq |= 0b001;                                             // Flag to update the level
+                case 0b010:                                                             // Bottom : Level range 0 to 99
+                    RotaryEnc[_Level_]++;
+                    if ( RotaryEnc[_Level_] > 99 ) { RotaryEnc[_Level_] = 0; }
+                    UpdateReq |= 0b001;                                                 // Flag to update the level
                     break;
-                case 0b011:                                                         // Middle: WaveForm range 0 to 4
-                    WaveForm++;
-                    if ( WaveForm > WaveformCount ) { WaveForm = 0; }
-                    UpdateReq |= 0b100;                                             // Flag to update the waveform
+               case 0b011:                                                              // Middle: WaveForm range 0 to 4
+                   RotaryEnc[_WaveForm_]++;
+                   if ( RotaryEnc[_WaveForm_] > 99) { RotaryEnc[_WaveForm_] = 0; }
+                   UpdateReq |= 0b100;                                                  // Flag to update the waveform
              }
         }
-        pio0_hw->irq = 3;                                                           // clear both interrupts
+        pio0_hw->irq = 3;                                                               // clear both interrupts
     }
-
-    PIO pio;                                                                        // the pio instance
-    uint sm;                                                                        // the state machine
-    static int Frequency;
-    static int WaveForm;
-    static int Level;
+    PIO pio;                                                                            // the pio instance
+    uint sm;                                                                            // the state machine
 };
-// Global Var...
-int RotaryEncoder::Frequency;                                                   // Initialize static members of class Rotary_encoder...
-int RotaryEncoder::WaveForm;
-int RotaryEncoder::Level;
 
-class blink_forever {                                                           // Class to initialise a state macne to blink a GPIO pin
+class blink_forever {                                                                   // Class to initialise a state machine to blink a GPIO pin
 public:
     blink_forever(PIO pio, uint sm, uint offset, uint pin, uint freq, uint blink_div) {
         blink_program_init(pio, sm, offset, pin, blink_div);
@@ -289,159 +315,92 @@ void WriteCathodes (int Data) {
 // Create bit pattern on cathode GPIO's corresponding to the Data input...
     int  shifted;
     shifted = Data ;
-    gpio_put(NixieCathodes[0], shifted %2) ;
+    gpio_put(Cathode_0, shifted %2) ;
     shifted = shifted /2 ;
-    gpio_put(NixieCathodes[1], shifted %2);
+    gpio_put(Cathode_1, shifted %2);
     shifted = shifted /2;
-    gpio_put(NixieCathodes[2], shifted %2);
+    gpio_put(Cathode_2, shifted %2);
     shifted = shifted /2;
-    gpio_put(NixieCathodes[3], shifted %2);
+    gpio_put(Cathode_3, shifted %2);
 }
 
 bool Repeating_Timer_Callback(struct repeating_timer *t) {
 // Scans the Nixie Anodes, and transfers data from the Nixie Buffers to the Cathodes.
     switch (ScanCtr) {
         case 0:
-            gpio_put(NixieAnodes[2], 0) ;                               // Turn off previous anode
+            gpio_put(Anode_2, 0) ;                                      // Turn off previous anode
             WriteCathodes(NixieBuffer[0]);                              // Set up new data on cathodes (Units)
-            gpio_put(NixieAnodes[0], 1) ;                               // Turn on current anode
+            gpio_put(Anode_0, 1) ;                                      // Turn on current anode
             break;
         case 1:
-            gpio_put(NixieAnodes[0], 0) ;                               // Turn off previous anode
+            gpio_put(Anode_0, 0) ;                                      // Turn off previous anode
             WriteCathodes(NixieBuffer[1]);                              // Set up new data on cathodes (10's)
-            gpio_put(NixieAnodes[1], 1) ;                               // Turn on current anode
+            gpio_put(Anode_1, 1) ;                                      // Turn on current anode
             break;
         case 2:
-            gpio_put(NixieAnodes[1], 0) ;                               // Turn off previous anode
+            gpio_put(Anode_1, 0) ;                                      // Turn off previous anode
             WriteCathodes(NixieBuffer[2]);                              // Set up new data on cathodes (100's)
-            gpio_put(NixieAnodes[2], 1) ;                               // Turn on current anode.
+            gpio_put(Anode_2, 1) ;                                      // Turn on current anode.
     }
     ScanCtr++;
     if ( ScanCtr > 2 ) { ScanCtr = 0; }                                 // Bump and Wrap the counter
     return true;
 }
 
-void WaveForm_update (int _value) {
+void WaveForm_Update(int _WaveForm_Type, int _WaveForm_Value) {
     int i;
-    int offset = BitMapSize/2 - 1;                                                          // Shift sine waves up above X axis
-    const float _2Pi = 6.283;                                                               // 2*Pi
-    float a,b,c,d,e;
-    switch (_value) {
-        case 0:
+    int offset = BitMapSize/2 - 1;                                                                        // Shift sine waves up above X axis
+    const float _2Pi = 6.283;                                                                             // 2*Pi
+    float a,b,x1,x2,g1,g2;
+    switch (_WaveForm_Type) {
+        case _Sine_:
+            _WaveForm_Value = _WaveForm_Value % 8;                                                        // Sine value cycles after 7
             #ifdef DEBUG
-            printf("Waveform: %03d - Sine: Fundamental\n",_value);
+            printf("Sine wave: Fundamental + %d harmonics.\n",_WaveForm_Value);
             #endif
-            for (i=0; i<(BitMapSize); i++) {
-                DAC_data[i] = (int)(offset * sin((float)i*_2Pi/(float)BitMapSize) + offset);
-            }        
+            for (i=0; i<BitMapSize; i++) {
+                a = offset * sin((float)_2Pi*i / (float)BitMapSize);                                      // Fundamental frequency...
+                if (_WaveForm_Value >= 1) { a += offset/3  * sin((float)_2Pi*3*i  / (float)BitMapSize); } // Add  3rd harmonic
+                if (_WaveForm_Value >= 2) { a += offset/5  * sin((float)_2Pi*5*i  / (float)BitMapSize); } // Add  5th harmonic
+                if (_WaveForm_Value >= 3) { a += offset/7  * sin((float)_2Pi*7*i  / (float)BitMapSize); } // Add  7th harmonic
+                if (_WaveForm_Value >= 4) { a += offset/9  * sin((float)_2Pi*9*i  / (float)BitMapSize); } // Add  9th harmonic
+                if (_WaveForm_Value >= 5) { a += offset/11 * sin((float)_2Pi*11*i / (float)BitMapSize); } // Add 11th harmonic
+                if (_WaveForm_Value >= 6) { a += offset/13 * sin((float)_2Pi*13*i / (float)BitMapSize); } // Add 13th harmonic
+                if (_WaveForm_Value >= 7) { a += offset/15 * sin((float)_2Pi*15*i / (float)BitMapSize); } // Add 15th harmonic
+                DAC_data[i] = (int)(a)+offset;                                                            // Sum all harmonics and add vertical offset
+            }          
             break;
-        case 1:
+        case _Square_: 
             #ifdef DEBUG
-            printf("Waveform: %03d - Sine: Fundamental + harmonic 3\n",_value);
+            printf("Square wave: %2d%% duty cycle\n",_WaveForm_Value);
             #endif
-            for (i=0; i<(BitMapSize); i++) {
-                a = offset * sin((float)_2Pi*i / (float)BitMapSize);                           // Fundamental frequency
-                b = offset/3 * sin((float)_2Pi*3*i / (float)BitMapSize);                       // 3rd harmonic
-                DAC_data[i] = (int)(a+b)+offset;                                               // Sum harmonics and add vertical offset
-            }        
-            break;
-        case 2:
-            #ifdef DEBUG
-            printf("Waveform: %03d - Sine: Fundamental + harmonics 3 and 5\n",_value);
-            #endif
-            for (i=0; i<(BitMapSize); i++) {
-                a = offset * sin((float)_2Pi*i / (float)BitMapSize);                           // Fundamental frequency
-                b = offset/3 * sin((float)_2Pi*3*i / (float)BitMapSize);                       // 3rd harmonic
-                c = offset/5 * sin((float)_2Pi*5*i / (float)BitMapSize);                       // 5th harmonic
-                DAC_data[i] = (int)(a+b+c)+offset;                                             // Sum harmonics and add vertical offset
-            }        
-            break;
-        case 3:
-            #ifdef DEBUG
-            printf("Waveform: %03d - Sine: Fundamental + harmonics 3,5 and 7\n",_value);
-            #endif
-            for (i=0; i<(BitMapSize); i++) {
-                a = offset * sin((float)_2Pi*i / (float)BitMapSize);                           // Fundamental frequency
-                b = offset/3 * sin((float)_2Pi*3*i / (float)BitMapSize);                       // 3rd harmonic
-                c = offset/5 * sin((float)_2Pi*5*i / (float)BitMapSize);                       // 5th harmonic
-                d = offset/7 * sin((float)_2Pi*7*i / (float)BitMapSize);                       // 7th harmonic
-                DAC_data[i] = (int)(a+b+c+d)+offset;                                           // Sum harmonics and add vertical offset
-            }        
-            break;
-        case 4:
-            #ifdef DEBUG
-            printf("Waveform: %03d - Sine: Fundamental + harmonic 3, 5, 7 and 9\n",_value);
-            #endif
-            for (i=0; i<(BitMapSize); i++) {
-                a = offset * sin((float)_2Pi*i / (float)BitMapSize);                           // Fundamental frequency
-                b = offset/3 * sin((float)_2Pi*3*i / (float)BitMapSize);                       // 3rd harmonic
-                c = offset/5 * sin((float)_2Pi*5*i / (float)BitMapSize);                       // 5th harmonic
-                d = offset/7 * sin((float)_2Pi*7*i / (float)BitMapSize);                       // 7th harmonic
-                e = offset/9 * sin((float)_2Pi*9*i / (float)BitMapSize);                       // 9th harmonic
-                DAC_data[i] = (int)(a+b+c+d+e)+offset;                                         // Sum harmonics and add vertical offset
-            }        
-            break;
-        case 5: 
-            #ifdef DEBUG
-            printf("Waveform: %03d - Square\n",_value);
-            #endif
-            for (i=0; i<(BitMapSize/2); i++){
-                DAC_data[i] = 0;                                                            // First half:  low
-                DAC_data[i+BitMapSize/2] = 255;                                             // Second half: high
+            b = _WaveForm_Value * BitMapSize / 100;                                                       // Convert % to value
+            for (i=0; i<BitMapSize; i++) {
+                if (b <= i) { DAC_data[i] = 0;   }                                                        // First section low
+                else        { DAC_data[i] = 255; }                                                        // Second section high
             }
             break;
-        case 6: 
+        case _Triangle_: 
             #ifdef DEBUG
-            printf("Waveform: %03d - Sawtooth (falling)\n",_value);
+            printf("Triangle wave %2d%% duty cycle\n",_WaveForm_Value);
             #endif
-            for (i=0; i<(BitMapSize); i++) {
-                DAC_data[i] = 32-i;
-            }
-            break;
-        case 7:
-            #ifdef DEBUG
-            printf("Waveform: %03d - Sawtooth (offset + falling)\n",_value);
-            #endif
-            for (i=0; i<(BitMapSize/4); i++) {
-                DAC_data[i] = i*4;                                                          // First quarter slope up, gradient = 4
-                DAC_data[i+BitMapSize*1/4] = 255-i*4/3;                                     // Second quarter slope down, gradient = 4/3
-                DAC_data[i+BitMapSize*2/4] = 170-i*4/3;                                     // Third quarter slope down, gradient = 4/3
-                DAC_data[i+BitMapSize*3/4] =  85-i*4/3;                                     // Last quarter slope down, gradient = 4/3
-            }
-            break;
-        case 8: 
-            #ifdef DEBUG
-            printf("Waveform: %03d - Triangle\n",_value);
-            #endif
-            for (i=0; i<(BitMapSize/2); i++){
-                DAC_data[i] = i*2;                                                          // First half:  slope up
-                DAC_data[i+BitMapSize/2] = 255-i*2;                                         // Second half: slope down
-            }
-            break;
-        case 9:
-            #ifdef DEBUG
-            printf("Waveform: %03d - Sawtooth (offset + rising)\n",_value);
-            #endif
-            for (i=0; i<(BitMapSize/4); i++) {
-                DAC_data[i]                     =    i*4/3;                                 // First quarter slope up, gradient = 4/3
-                DAC_data[i+BitMapSize*1/4] =  85+i*4/3;                                     // Second quarter slope down,, gradient = 4/3
-                DAC_data[i+BitMapSize*2/4] = 170+i*4/3;                                     // Third quarter slope down, gradient = 4/3
-                DAC_data[i+BitMapSize*3/4] = 255-i*4;                                       // Last quarter slope down,, gradient = 4
-            }
-            break;
-        case 10:
-            printf("Waveform: %03d - Sawtooth (rising)\n",_value);
-            for (i=0; i<(BitMapSize); i++) {
-                DAC_data[i] = i;
+            x1 = (_WaveForm_Value * BitMapSize / 100) -1;                                                 // Number of data points to peak
+            x2 = BitMapSize - x1;                                                                         // Number of data points after peak
+            g1 = (BitMapSize - 1) / x1;                                                                   // Rising gradient (Max val = BitMapSize -1)
+            g2 = (BitMapSize - 1) / x2;                                                                   // Falling gradient (Max val = BitMapSize -1)
+            for (i=0; i<BitMapSize; i++) {
+                if (i <= x1) { DAC_data[i] = i * g1; }                                                    // Rising  section of waveform...
+                if (i > x1)  { DAC_data[i] = (BitMapSize - 1) - ((i - x1) * g2); }                        // Falling section of waveform
             }
             break;
     }
 
-    NixieBuffer[0] = _value % 10 ;                                  // First Nixie ( 1's )
-    _value /= 10 ;                                                  // finished with _value, so ok to trash it. _value=>10's
-    NixieBuffer[1] = _value % 10 ;                                  // Second Nixie ( 10's )
-    _value /= 10 ;                                                  // _value=>100's
-    NixieBuffer[2] = 10 ;                                           // Blank Third Nixie ( 100's )
+    // finished with _WaveForm_Value, so ok to trash it as we update the display...    
+    NixieBuffer[0] = _WaveForm_Value % 10 ;                                                               // First Nixie ( 1's )
+    _WaveForm_Value /= 10 ;                                                                               // _value=>10's
+    NixieBuffer[1] = _WaveForm_Value % 10 ;                                                               // Second Nixie ( 10's )
+    _WaveForm_Value /= 10 ;                                                                               // _value=>100's
+    NixieBuffer[2] = 10 ;                                                                                 // Blank Third Nixie ( 100's )
 }
 
 static inline void cs_select() {
@@ -457,7 +416,7 @@ static inline void cs_deselect() {
 }
 
 static void MCP41010_write(int _data) {
-// Formats and trnsmits 16 bit data word to the MCP41010 digital potentiometer...
+// Formats and transmits 16 bit data word to the MCP41010 digital potentiometer...
     uint8_t buff[2];
     buff[0] = 0x11;                                                             // Control byte: Write to potentiometer #1
     buff[1] = _data;                                                            // Data byte
@@ -466,58 +425,111 @@ static void MCP41010_write(int _data) {
     cs_deselect();
 }
 
+void gpio_callback(uint gpio, uint32_t events) {
+    class my_encoder;
+    volatile bool CurBit,PrevBit;
+    volatile uint SwitchStatus = 0;
+    volatile uint BitMask = 1 << GPIO_count-2;
+//  printf("Previous Status: %b\n",PrevStatus);
+// Scan down through input ports and create status bitmap...
+    for (int i=GPIO_count-2; i>=0 ; i--) {                                      // Note: 'GPIOCount-2' skips encoder pins
+        SwitchStatus <<= 1;                                                     // Bit shift left
+        CurBit = gpio_get(GPIO_Inputs[i]);
+        PrevBit = PrevStatus & BitMask;
+        SwitchStatus += CurBit;
+//      printf("Bit %d - Masked=%08b value=%b SwitchStatus=%08b\n",i,PrevBit,CurBit,SwitchStatus);
+        if (PrevBit != CurBit) {
+            // Do stuff here...
+            switch (i) {
+                case 0:
+                    if (CurBit) { printf("Square\n"); 
+                                  WaveForm_Type = _Square_ ;
+                                  RotaryEnc[_WaveForm_] = 50;       // Set default: 50% duty cycle
+                                  ModeSelect = 0b011; }
+                    else        { printf("Sine\n"); 
+                                  WaveForm_Type = _Sine_ ;
+                                  RotaryEnc[_WaveForm_] = 0;        // Set default: Sine wave, no harmonics
+                                  ModeSelect = 0b011; }
+                    UpdateReq = 0b100;                              // Flag to update the waveform
+                    break;
+                case 1:
+                    if (CurBit) { printf("Hz\n"); 
+                                  FreqMultiplier = 1; }
+                    else        { printf("KHz\n"); 
+                                  FreqMultiplier = 1000; }
+                    UpdateReq = 0b010;                              // Flag to update the frequency
+                    break;
+                case 2:
+                    if (CurBit) { printf("Square\n");
+                                  WaveForm_Type = _Square_ ;
+                                  RotaryEnc[_WaveForm_] = 50;       // Set default: 50% duty cycle
+                                  ModeSelect = 0b011; }
+                    else        { printf("Triangle\n");
+                                  WaveForm_Type = _Triangle_ ;
+                                  RotaryEnc[_WaveForm_] = 50 ;      // Set default: 50% duty cycle
+                                  ModeSelect = 0b011; }
+                    UpdateReq = 0b100;                              // Flag to update the waveform
+                    break;
+                case 3:
+                    if (CurBit) { printf("Frequency\n");
+                                  ModeSelect = 0b0001;
+                                  UpdateReq = 0b010; }
+                    else        { printf("Level\n"); 
+                                  ModeSelect = 0b0010;
+                                  UpdateReq = 0b001; }              // Flag to update the level
+                    break;
+            }
+//          printf("Bit %d / Switch %d / GPIO %2d has changed. %b->%b\n",i,i+2,GPIO_Inputs[i],PrevBit,CurBit);
+        }
+        BitMask >>= 1;                                                       // Next bit
+    }
+//  printf("Current Status:  %b\n\n",SwitchStatus);
+    PrevStatus = SwitchStatus;
+}
+
 int main() {
     static const float blink_freq = 16000;                                      // Reduce SM clock to keep flash visible...
-    float blink_div = (float)clock_get_hz(clk_sys) / blink_freq;                //   ... calculate the required blink SM clock divider
     static const float rotary_freq = 16000;                                     // Clock speed reduced to eliminate rotary encoder jitter...
-    float rotary_div = (float)clock_get_hz(clk_sys) / rotary_freq;              //... then calculate the required rotary encoder SM clock divider
-// TBD - clock speed should be set before the previous statements.
     set_sys_clock_khz(280000, true);                                            // Overclocking the core by a factor of 2 allows 1MHz from DAC
+    float blink_div = (float)clock_get_hz(clk_sys) / blink_freq;                //   ... calculate the required blink SM clock divider
+    float rotary_div = (float)clock_get_hz(clk_sys) / rotary_freq;              //... then calculate the required rotary encoder SM clock divider
+
 #ifdef DEBUG
-    stdio_init_all();                                                           // needed for printf
+    stdio_init_all();                                                           // Needed for printf
 #endif
 
-// This example will use SPI0 at 0.5MHz.
+// Initialise GPIO Outputs...
+    GPIO_count = sizeof(GPIO_Outputs)/sizeof(*GPIO_Outputs);
+    for ( uint i = 0; i < GPIO_count; i++ ) {
+        gpio_init(GPIO_Outputs[i]);
+        gpio_set_dir(GPIO_Outputs[i], GPIO_OUT);
+    }
+    gpio_put(PIN_CS, 1);                                                        // SPI chip select is active-low, so set to inactive state
+
+/* //Initialise PIO Outputs for DAC...
+    for ( uint i = 0; i < DAC_Bits; i++ ) {
+        gpio_set_slew_rate(GPIOvals[i+2],GPIO_SLEW_RATE_FAST);                  // GPIO Warp factor 10
+        gpio_set_drive_strength(GPIOvals[i+2],GPIO_DRIVE_STRENGTH_12MA);
+    } */
+
+// Initialise GPIO Inputs...
+// TBD - DO I WANT PULL UPS ON THE ENCODER PINS ???
+    GPIO_count = sizeof(GPIO_Inputs)/sizeof(*GPIO_Inputs);
+    for ( uint i = 0; i < GPIO_count; i++ ) {
+        gpio_init(GPIO_Inputs[i]);
+        gpio_set_dir(GPIO_Inputs[i], GPIO_IN);
+        gpio_pull_up(GPIO_Inputs[i]);                                           // Enable pull up
+    }
+// Enable GPIO interupts...
+    gpio_set_irq_enabled_with_callback(SW4, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback);
+    gpio_set_irq_enabled(SW5, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
+    gpio_set_irq_enabled(SW6, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
+    gpio_set_irq_enabled(SW7, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
+
+// Set SPI0 to 0.5MHz...
     spi_init(SPI_PORT, 500 * 1000);
     gpio_set_function(PIN_SCK, GPIO_FUNC_SPI);
     gpio_set_function(PIN_MOSI, GPIO_FUNC_SPI);
-
-// Set up the GPIO pins...
-    const uint Onboard_LED = PICO_DEFAULT_LED_PIN;                              // Debug use - intialise the Onboard LED...
-    gpio_init(Onboard_LED);
-    gpio_set_dir(Onboard_LED, GPIO_OUT);
-// Initialise Nixie cathodes...
-    for ( uint i = 0; i < sizeof(NixieCathodes) / sizeof( NixieCathodes[0]); i++ ) {
-        gpio_init(NixieCathodes[i]);
-        gpio_set_dir(NixieCathodes[i], GPIO_OUT);                               // Set as output
-    }
-// Initialise Nixe anodes...
-    for ( uint i = 0; i < sizeof(NixieAnodes) / sizeof( NixieAnodes[0]); i++ ) {
-        gpio_init(NixieAnodes[i]);
-        gpio_set_dir(NixieAnodes[i], GPIO_OUT);                                 // Set as output
-    }
-// Initialise rotary encoder...
-    for ( uint i = 0; i < sizeof(RotaryEncoder) / sizeof( EncoderPorts[0]); i++ ) {
-        gpio_init(EncoderPorts[i]);
-        gpio_set_dir(EncoderPorts[i], GPIO_IN);                                 // Set as input
-        gpio_pull_up(EncoderPorts[i]);                                          // Enable pull up
-    }
-// Initialise 2-way switch inputs...
-    gpio_init(SW_2way_1);
-    gpio_set_dir(SW_2way_1, GPIO_IN);
-    gpio_pull_up(SW_2way_1);
-// Initialise 3-way switch inputs...
-    gpio_init(SW_3way_1);
-    gpio_set_dir(SW_3way_1, GPIO_IN);
-    gpio_pull_up(SW_3way_1);
-    gpio_init(SW_3way_2);
-    gpio_set_dir(SW_3way_2, GPIO_IN);
-    gpio_pull_up(SW_3way_2);
-
-// SPI chip select is active-low, so we'll initialise it to a driven-high state...
-    gpio_init(PIN_CS);
-    gpio_set_dir(PIN_CS, GPIO_OUT);
-    gpio_put(PIN_CS, 1);
 
     RotaryEncoder my_encoder(16, rotary_freq);                                      // the A of the rotary encoder is connected to GPIO 16, B to GPIO 17
 
@@ -543,18 +555,24 @@ int main() {
   struct repeating_timer timer;
     add_repeating_timer_ms(-7, Repeating_Timer_Callback, NULL, &timer);             // 7ms - Short enough to prevent Nixie tube flicker
                                                                                     //       Long enough to prevent Nixie tube bluring
-    my_encoder.set_Frequency(50);                                                   // Default: 100Hz
-    my_encoder.set_WaveForm(0);                                                     // Default: Sine wave
-    my_encoder.set_Level(50);                                                       // Default: 50%
+
+    RotaryEnc[_Frequency_] = 100;                                                   // Default: 100Hz
+    RotaryEnc[_Level_] = 50;                                                        // Default: 50%
+    RotaryEnc[_WaveForm_] = 0;                                                      // Default: Sine wave, no harmonics
+
+// GPIO interrupt routine is triggerd at start up, but has no 'previous state' info. This means we have to manualy set a couple of defaults...
+// TBD - WHY NOT READ THE SWITCHES ????
+    WaveForm_Type = _Sine_ ;
+    FreqMultiplier = 1;                                                             // Default: Hz
+
     UpdateReq = 0b0111;                                                             // Set flags to load all default values
 
     while (true) {                                                                  // Infinite loop
         if (UpdateReq) {
         // Falls through here when any of the rotary encoder values change...
             if (UpdateReq & 0b010) {                                                // Frequency has changed
-                NixieVal = my_encoder.get_Frequency();                              // Value in range 0->999
-                Frequency = NixieVal;
-                if (SW_2way != 0) { Frequency *= 1000; }                            // Scale by 1K if required
+                NixieVal = RotaryEnc[_Frequency_];                                  // Value in range 0->999
+                Frequency = NixieVal * FreqMultiplier;
                 DataChannel.Set_Frequency(Frequency);
 
                 NixieBuffer[0] = NixieVal % 10 ;                                    // First Nixie ( 1's )
@@ -564,8 +582,8 @@ int main() {
                 NixieBuffer[2] = NixieVal % 10 ;                                    // Third Nixie ( 100's )
             }
             if (UpdateReq & 0b100) {                                                // Waveform has changed
-                NixieVal  = my_encoder.get_WaveForm();
-                WaveForm_update(NixieVal);
+                NixieVal = RotaryEnc[_WaveForm_];
+                WaveForm_Update(WaveForm_Type, NixieVal);
                 NixieBuffer[0] = NixieVal % 10 ;                                    // First Nixie ( 1's )
                 NixieVal /= 10 ;                                                    // finished with NixieVal, so ok to trash it. NixieVal=>10's
                 NixieBuffer[1] = NixieVal % 10 ;                                    // Second Nixie ( 10's )
@@ -573,7 +591,7 @@ int main() {
                 NixieBuffer[2] = 10 ;                                               // Blank Third Nixie ( 100's )
             }
             if (UpdateReq & 0b001) {                                                // Level has changed
-                NixieVal  = my_encoder.get_Level();
+                NixieVal  = RotaryEnc[_Level_];
                 ScaledVal = NixieVal*255/99;                                        // Scale the level. Display: 0->99 - Potentiometer: 0->255
                 #ifdef DEBUG
                 printf("Level: %02d%% Level(Abs): %d\n",NixieVal,ScaledVal);
@@ -586,37 +604,6 @@ int main() {
                 NixieBuffer[2] = 10 ;                                               // Blank Third Nixie ( 100's )
             }
             UpdateReq = 0;                                                          // All up to date, so clear the flag
-        }
-        // Get 2 way toggle switch status...
-        SW_2way = gpio_get(SW_2way_1);                                              // True=KHz, False=Hz
-        if (SW_2way != Last_SW_2way) {
-            #ifdef DEBUG
-            if (SW_2way == 0) { printf("Frequency: Hz\n");  }
-            else              { printf("Frequency: KHz\n"); }
-            #endif
-            Last_SW_2way = SW_2way;
-            UpdateReq = 0b010;                                                      // Force frequency update to load new value to DAC + SM
-        }
-
-        // Get 3 way toggle switch status...
-        SW_3way = (gpio_get(SW_3way_1)<<1) + (gpio_get(SW_3way_2));
-        if (SW_3way != Last_SW_3way) {
-            switch (SW_3way) {
-                case 0b010:                                                         // SW=>Top position
-                    #ifdef DEBUG
-                    printf("Frequency: %03d Hz\n",my_encoder.get_Frequency());
-                    #endif
-                    break;
-                case 0b011:                                                         // SW=>Middle position
-                    WaveForm_update(my_encoder.get_WaveForm());
-                    break;
-                case 0b001:                                                         // SW=>Bottom position
-                    #ifdef DEBUG
-                    printf("Level: %02d\n",my_encoder.get_Level());
-                    #endif
-                    break;
-            }
-        Last_SW_3way = SW_3way;
         }
     }
 }
