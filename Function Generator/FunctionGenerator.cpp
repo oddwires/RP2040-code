@@ -28,38 +28,57 @@
 #include "FastDAC.pio.h"
 #include "SlowDAC.pio.h"
 
-// Define GPIO connections...
-const uint SW0          =  0;                       // SW0+SW1 form a 3 way switch (not available when compiled with #DEBUG)
-const uint SW1          =  1;
-const uint SW2          =  8;                       // SW2+SW3 form a 3 way switch (not available when compiled with #EIGHTBITDAC)
-const uint SW3          =  9;
-
-const uint SW6          = 13;                       // Freq/Level
-const uint SW4          = 14;                       // Sine/Square/Triangle (a)
-const uint SW5          = 15;                       // Sine/Square/Triangle (b)
-const uint SW7          = 28;                       // Hz/KHz
-
-const uint EncoderClock = 16;
-const uint EncoderData  = 17;
-const uint Anode_0      = 22;                       // Nixie anodes
-const uint Anode_1      = 26;
-const uint Anode_2      = 27;
-const uint Cathode_0    = 18;                       // Nixie cathodes - connect through a 74141 Nixie driver chip, so
-const uint Cathode_1    = 19;                       // only a 4 bit data bus is implemented
-const uint Cathode_2    = 20;
-const uint Cathode_3    = 21;
-const uint Onboard_LED  = 25;                       // PICO Onboard LED
-
-                                                    // SPI connections...
-                                                    // ┌──────────────────┬─────────────────┬─────────────────────┐
-                                                    // │ PICO connection  │ SPI function    │ MCP41010 connection │
-                                                    // ├──────────────────┼─────────────────┼─────────────────────┤
-#define PIN_SCK         10                          // │ GPIO 10 (pin 14) │ SCK/spi1_sclk   │ SCK (pin 2)         │
-#define PIN_MOSI        11                          // │ GPIO 11 (pin 15) │ MOSI/spi1_tx    │ SI  (pin 3)         │
-#define PIN_CS          12                          // │ GPIO 12 (pin 16) │ Chip select     │ CS  (pin 1)         │
-                                                    // └──────────────────┴─────────────────┴─────────────────────┘
-#define SPI_PORT        spi1                        // Pico SPI port #1
-
+// Define all GPIO connections...
+                                                    // Switch connections...
+                                                    // ┌──────────┬────────────┬──────────────────────┐
+                                                    // │ PGA2040  │ Connection │ Function             │
+                                                    // ├──────────┼────────────┼──────────────────────┤
+const uint SW0          =  16;                      // │ GPIO 16  │ Switch 0   │ 0=Level,1=Freq       │
+const uint SW1          =  15;                      // │ GPIO 15  │ Switch 1   │ 0=Sine, 1=Square     │
+const uint SW2          =  18;                      // │ GPIO 18  │ Switch 2   │ 0=Triangle, 1=Square │
+const uint SW3          =  17;                      // │ GPIO 17  │ Switch 3   │ 0=Hz, 1=KHz          │
+const uint SW4          =  19;                      // │ GPIO 19  │ Switch 4   │                      │
+                                                    // └──────────┴────────────┴──────────────────────┘
+                                                    // Nixie connections...
+                                                    // Note: Cathodes - connect through a 74141 Nixie driver chip,
+                                                    //       so only 4 data bits are required
+                                                    // ┌──────────┬────────────┬──────────────────────┐
+                                                    // │ PGA2040  │ Connection │ Function             │
+                                                    // ├──────────┼────────────┼──────────────────────┤
+const uint Anode_0      = 27;                       // │ GPIO 27  │ Anode 0    │ Units                │
+const uint Anode_1      = 28;                       // │ GPIO 28  │ Anode 0    │ 10's                 │
+const uint Anode_2      = 29;                       // │ GPIO 29  │ Anode 0    │ 100's                │
+const uint Cathode_0    = 23;                       // │ GPIO 23  │ Cathode 0  │ Data bit 0           │
+const uint Cathode_1    = 24;                       // │ GPIO 24  │ Cathode 0  │ Data bit 1           │
+const uint Cathode_2    = 25;                       // │ GPIO 25  │ Cathode 0  │ Data bit 2           │
+const uint Cathode_3    = 26;                       // │ GPIO 26  │ Cathode 0  │ Data bit 3           │
+                                                    // └──────────┴────────────┴──────────────────────┘
+#define SPI_PORT        spi1                        // The SPI connections will require RP2040 SPI port #1...
+                                                    // ┌──────────┬────────────────┬──────────────────┐
+                                                    // │ PGA2040  │ Connection     │ MCP41010         │
+                                                    // ├──────────┼────────────────┼──────────────────┤
+const uint PIN_SCK       = 10;                      // │ GPIO 10  │ SCK/spi1_sclk  │ SCK (pin 2)      │
+const uint PIN_MOSI      = 11;                      // │ GPIO 11  │ MOSI/spi1_tx   │ SI  (pin 3)      │
+const uint PIN_CS        = 12;                      // │ GPIO 12  │ Chip select    │ CS  (pin 1)      │
+                                                    // └──────────┴────────────────┴──────────────────┘
+const uint Onboard_LED  = 14;                       // Onboard LED
+const uint EncoderClock = 21;
+const uint EncoderData  = 22;
+                                                    // D2A connections...
+                                                    // Note: These are defined in the FastDAC.pio and SlowDAC.pio files.
+                                                    //       They are only included here for completeness.
+                                                    // ┌──────────┬─────────────┬─────────────────────┐
+                                                    // │ PGA2040  │ Connection  │ Function            │
+                                                    // ├──────────┼─────────────┤─────────────────────┤
+                                                    // │ GPIO  2  │  Data bit 0 │ Least significant   │                                                   
+                                                    // │ GPIO  3  │  Data bit 1 │                     │
+                                                    // │ GPIO  4  │  Data bit 2 │                     │
+                                                    // │ GPIO  5  │  Data bit 3 │                     │
+                                                    // │ GPIO  6  │  Data bit 4 │                     │
+                                                    // │ GPIO  7  │  Data bit 5 │                     │
+                                                    // │ GPIO  8  │  Data bit 6 │                     │
+                                                    // │ GPIO  9  │  Data bit 7 │ Most significant    │
+                                                    // └──────────┴─────────────┘─────────────────────┘
 // Define useful constants...
 #define Slow            0
 #define Fast            1
@@ -74,8 +93,8 @@ const uint Onboard_LED  = 25;                       // PICO Onboard LED
 #ifdef DEBUG
 // SW0 and SW1 assigned to RS-232 port...
 //const unsigned int GPIO_Inputs[] = {SW2, SW3, SW4, SW5, SW6, EncoderClock, EncoderData};
-const unsigned int GPIO_Inputs[] = {SW4, SW5, SW6, SW7, EncoderClock, EncoderData};
-const unsigned GPIO_Outputs[] = {Anode_0, Anode_1, Anode_2, Cathode_0, Cathode_1, Cathode_2, Cathode_3, PIN_CS};
+const unsigned int GPIO_Inputs[] = {SW0, SW1, SW2, SW3, SW4, EncoderClock, EncoderData};
+const unsigned GPIO_Outputs[] = {Anode_0, Anode_1, Anode_2, Cathode_0, Cathode_1, Cathode_2, Cathode_3, PIN_CS, PIN_SCK, PIN_MOSI};
 #else
 // SW0 and SW1 assigned as GPIO inputs...
 const unsigned int GPIO_Inputs[] = {SW0, SW1, SW2, SW3, SW4, SW5, SW6, SW7, EncoderClock, EncoderData};
@@ -97,10 +116,12 @@ int raw_sin[BitMapSize] ;
 unsigned short DAC_data[BitMapSize] __attribute__ ((aligned(2048))) ;           // Align DAC data
 
 void blink_pin_forever(PIO pio, uint sm, uint offset, uint pin, uint freq);
-//class my_encoder;
 
-class RotaryEncoder {                                                               // Class to initialise a state machine to read 
-public:                                                                             //    the rotation of the rotary encoder
+class RotaryEncoder {
+// Class to initialise a state machine to read the rotation of the rotary encoder
+//  Based on the GitHub example here... 
+//      https://github.com/GitJer/Some_RPI-Pico_stuff/tree/main/Rotary_encoder
+public:
     // constructor
     // rotary_encoder_A is the pin for the A of the rotary encoder.
     // The B of the rotary encoder has to be connected to the next GPIO.
@@ -354,7 +375,7 @@ void WaveForm_Update(int _WaveForm_Type, int _WaveForm_Value) {
     float a,b,x1,x2,g1,g2;
     switch (_WaveForm_Type) {
         case _Sine_:
-            _WaveForm_Value = _WaveForm_Value % 8;                                                        // Sine value cycles after 7
+            _WaveForm_Value = _WaveForm_Value % 64;                                                        // Sine value cycles after 7
             #ifdef DEBUG
             printf("Sine wave: Fundamental + %d harmonics.\n",_WaveForm_Value);
             #endif
@@ -426,7 +447,6 @@ static void MCP41010_write(int _data) {
 }
 
 void gpio_callback(uint gpio, uint32_t events) {
-    class my_encoder;
     volatile bool CurBit,PrevBit;
     volatile uint SwitchStatus = 0;
     volatile uint BitMask = 1 << GPIO_count-2;
@@ -442,6 +462,14 @@ void gpio_callback(uint gpio, uint32_t events) {
             // Do stuff here...
             switch (i) {
                 case 0:
+                    if (CurBit) { printf("Frequency\n");
+                                  ModeSelect = 0b0001;
+                                  UpdateReq = 0b010; }
+                    else        { printf("Level\n"); 
+                                  ModeSelect = 0b0010;
+                                  UpdateReq = 0b001; }              // Flag to update the level
+                    break;
+                case 1:
                     if (CurBit) { printf("Square\n"); 
                                   WaveForm_Type = _Square_ ;
                                   RotaryEnc[_WaveForm_] = 50;       // Set default: 50% duty cycle
@@ -451,13 +479,6 @@ void gpio_callback(uint gpio, uint32_t events) {
                                   RotaryEnc[_WaveForm_] = 0;        // Set default: Sine wave, no harmonics
                                   ModeSelect = 0b011; }
                     UpdateReq = 0b100;                              // Flag to update the waveform
-                    break;
-                case 1:
-                    if (CurBit) { printf("Hz\n"); 
-                                  FreqMultiplier = 1; }
-                    else        { printf("KHz\n"); 
-                                  FreqMultiplier = 1000; }
-                    UpdateReq = 0b010;                              // Flag to update the frequency
                     break;
                 case 2:
                     if (CurBit) { printf("Square\n");
@@ -471,12 +492,11 @@ void gpio_callback(uint gpio, uint32_t events) {
                     UpdateReq = 0b100;                              // Flag to update the waveform
                     break;
                 case 3:
-                    if (CurBit) { printf("Frequency\n");
-                                  ModeSelect = 0b0001;
-                                  UpdateReq = 0b010; }
-                    else        { printf("Level\n"); 
-                                  ModeSelect = 0b0010;
-                                  UpdateReq = 0b001; }              // Flag to update the level
+                    if (CurBit) { printf("Hz\n"); 
+                                  FreqMultiplier = 1; }
+                    else        { printf("KHz\n"); 
+                                  FreqMultiplier = 1000; }
+                    UpdateReq = 0b010;                              // Flag to update the frequency
                     break;
             }
 //          printf("Bit %d / Switch %d / GPIO %2d has changed. %b->%b\n",i,i+2,GPIO_Inputs[i],PrevBit,CurBit);
@@ -490,7 +510,7 @@ void gpio_callback(uint gpio, uint32_t events) {
 int main() {
     static const float blink_freq = 16000;                                      // Reduce SM clock to keep flash visible...
     static const float rotary_freq = 16000;                                     // Clock speed reduced to eliminate rotary encoder jitter...
-    set_sys_clock_khz(280000, true);                                            // Overclocking the core by a factor of 2 allows 1MHz from DAC
+//  set_sys_clock_khz(280000, true);                                            // Overclocking the core by a factor of 2 allows 1MHz from DAC
     float blink_div = (float)clock_get_hz(clk_sys) / blink_freq;                //   ... calculate the required blink SM clock divider
     float rotary_div = (float)clock_get_hz(clk_sys) / rotary_freq;              //... then calculate the required rotary encoder SM clock divider
 
@@ -521,17 +541,18 @@ int main() {
         gpio_pull_up(GPIO_Inputs[i]);                                           // Enable pull up
     }
 // Enable GPIO interupts...
-    gpio_set_irq_enabled_with_callback(SW4, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback);
-    gpio_set_irq_enabled(SW5, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
-    gpio_set_irq_enabled(SW6, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
-    gpio_set_irq_enabled(SW7, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
+    gpio_set_irq_enabled_with_callback(SW0, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback);
+    gpio_set_irq_enabled(SW1, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
+    gpio_set_irq_enabled(SW2, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
+    gpio_set_irq_enabled(SW3, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
+    gpio_set_irq_enabled(SW4, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
 
 // Set SPI0 to 0.5MHz...
     spi_init(SPI_PORT, 500 * 1000);
     gpio_set_function(PIN_SCK, GPIO_FUNC_SPI);
     gpio_set_function(PIN_MOSI, GPIO_FUNC_SPI);
 
-    RotaryEncoder my_encoder(16, rotary_freq);                                      // the A of the rotary encoder is connected to GPIO 16, B to GPIO 17
+    RotaryEncoder my_encoder(EncoderClock, rotary_freq);
 
 // Confirm memory alignment
     #ifdef DEBUG
@@ -545,7 +566,7 @@ int main() {
 // Set up the State machines...
     PIO pio = pio0;
     uint offset = pio_add_program(pio, &pio_blink_program);
-    blink_forever my_blinker(pio, 0, offset, 25, blink_freq, blink_div);            // SM0=>onboard LED
+    blink_forever my_blinker(pio, 0, offset, Onboard_LED, blink_freq, blink_div);   // SM0=>onboard LED
 
     DMAtoDAC_channel DataChannel;                                                   // Create DMAtoDAC_channel object
 
@@ -564,7 +585,7 @@ int main() {
 // TBD - WHY NOT READ THE SWITCHES ????
     WaveForm_Type = _Sine_ ;
     FreqMultiplier = 1;                                                             // Default: Hz
-
+    ModeSelect = 0b0001;
     UpdateReq = 0b0111;                                                             // Set flags to load all default values
 
     while (true) {                                                                  // Infinite loop
