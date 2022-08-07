@@ -13,4 +13,4 @@
 
 ![Hardware](https://github.com/oddwires/RP2040/blob/master/Function%20Generator/Images/FunctionGenerator.jpg)
 
-(and my repaired GEC MiniScope)
+(150Hz Sine wave + 3rd harmonic on my GEC MiniScope)
