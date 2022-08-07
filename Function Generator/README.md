@@ -1,15 +1,14 @@
 ****(Work in progress)****
-# Function Generator on a PI Pico. #
+# Function Generator on a Pimoroni PGA2040. #
 
 * Development + Debug environment:
   * VSCode on Win 7
-  * Picoprobe running on 2nd RPI pico
   * OpenOCD and GDB
-* Rotary encoder input using State Machine 0
-* Onboard LED flashing using State Machine 1
+  * Picoprobe running on PI Pico providing SWG debugger for target device
+* Target dievice changed from Pi Pico to Pimoroni PGA2040 to provide more GPIO pins.
 * Nixie tube display
   * Multiplexed to reduce hardware
   * 170 volt PSU for tubes created from 4 x 1.5v batteries + custom SMPS
-* 8 bit R2R ADC creating Sine wave output for oscilloscope
+* 8 bit R2R ADC creating various waveform outputs for oscilloscope display
 
 ![Hardware](https://user-images.githubusercontent.com/3483157/163587205-dd22d308-fde1-4668-b7d6-f42ee1dcb94b.JPG)
