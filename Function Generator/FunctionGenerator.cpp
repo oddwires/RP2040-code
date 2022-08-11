@@ -1,18 +1,70 @@
 // Set GPIO pin assignment through compile options...
 #define DEBUG                                           // Assign pins 1 and 2 to the RS-232, and direct debug output through this port
                                                         // Note: This disables the input ports on these pins (GPIO_0 and GPIO_1).
-#define EIGHTBITDAC                                     // Assign pins 11 and 12 to drive the DAC.
-                                                        // Note: This disables the input ports on these pins (GPIO_8 and GPIO_9).
 // End of compile options
 
-// OK, so the C++ preprocessor can't do any maths, so we have to manually expand the above selection to match the X and Y resolution...
-#ifdef EIGHTBITDAC
-#define DAC_Bits          8                             // Width of hardware DAC in bits.
-#define BitMapSize      256                             // Match X to Y resolution
-#else
-#define DAC_Bits          6                             // Width of hardware DAC in bits.
-#define BitMapSize       64                             // Match X to Y resolution
-#endif
+// Define Hardware connections...
+// Switch connections...
+                                                    // ┌──────────┬────────────────┬──────────────────────┐
+                                                    // │ PGA2040  │ Connection     │ Function             │
+                                                    // ├──────────┼────────────────┼──────────────────────┤
+#define SW0             16                          // │ GPIO 16  │ Switch 0       │ 0=Level,1=Freq       │
+#define SW1             15                          // │ GPIO 15  │ Switch 1       │ 0=Sine, 1=Square     │
+#define SW2             18                          // │ GPIO 18  │ Switch 2       │ 0=Triangle, 1=Square │
+#define SW3             17                          // │ GPIO 17  │ Switch 3       │ 0=Hz, 1=KHz          │
+#define SW4             19                          // │ GPIO 19  │ Switch 4       │                      │
+                                                    // └──────────┴────────────────┴──────────────────────┘
+// Nixie connections...
+// Note: Cathodes are connect through a 74141 Nixie driver chip, so only 4 data bits are required.
+                                                    // ┌──────────┬────────────────┬──────────────────────┐
+                                                    // │ PGA2040  │ Connection     │ Function             │
+                                                    // ├──────────┼────────────────┼──────────────────────┤
+#define Anode_0         27                          // │ GPIO 27  │ Anode 0        │ Units                │
+#define Anode_1         28                          // │ GPIO 28  │ Anode 0        │ 10's                 │
+#define Anode_2         29                          // │ GPIO 29  │ Anode 0        │ 100's                │
+#define Cathode_0       23                          // │ GPIO 23  │ Cathode 0      │ Data bit 0 (LSB)     │
+#define Cathode_1       24                          // │ GPIO 24  │ Cathode 0      │ Data bit 1           │
+#define Cathode_2       25                          // │ GPIO 25  │ Cathode 0      │ Data bit 2           │
+#define Cathode_3       26                          // │ GPIO 26  │ Cathode 0      │ Data bit 3 (MSB)     │
+                                                    // └──────────┴────────────────┴──────────────────────┘
+// SPI port connections...
+                                                    // ┌──────────┬────────────────┬─────────────────────┐
+                                                    // │ PGA2040  │ Connection     │ MCP41010            │
+                                                    // ├──────────┼────────────────┼─────────────────────┤
+#define PIN_SCK         10                          // │ GPIO 10  │ SCK/spi1_sclk  │ SCK (pin 2)         │
+#define PIN_MOSI        11                          // │ GPIO 11  │ MOSI/spi1_tx   │ SI  (pin 3)         │
+#define PIN_CS          12                          // │ GPIO 12  │ Chip select    │ CS  (pin 1)         │
+                                                    // └──────────┴────────────────┴─────────────────────┘
+#define SPI_PORT        spi1                        // These SPI connections require the use of RP2040 SPI port #1
+// Other connections...
+#define Onboard_LED     14                          // Onboard LED
+#define EncoderClock    21                          // Encoder
+#define EncoderData     22                          // Encoder
+// D2A connections...
+// Note: These are defined in the FastDAC.pio and SlowDAC.pio files. They are only included here for completeness.
+                                                    // ┌──────────┬─────────────┬────────────────────────┐
+                                                    // │ PGA2040  │ Connection  │ Function               │
+                                                    // ├──────────┼─────────────┤────────────────────────┤
+                                                    // │ GPIO  2  │  Data bit 0 │ Least significant      │                                                   
+                                                    // │ GPIO  3  │  Data bit 1 │                        │
+                                                    // │ GPIO  4  │  Data bit 2 │                        │
+                                                    // │ GPIO  5  │  Data bit 3 │                        │
+                                                    // │ GPIO  6  │  Data bit 4 │                        │
+                                                    // │ GPIO  7  │  Data bit 5 │                        │
+                                                    // │ GPIO  8  │  Data bit 6 │                        │
+                                                    // │ GPIO  9  │  Data bit 7 │ Most significant       │
+                                                    // └──────────┴─────────────┘────────────────────────┘
+// Useful constants...
+#define DAC_Bits        8                           // Width of hardware DAC in bits.
+#define BitMapSize      256                         // Match X to Y resolution
+#define Slow            0
+#define Fast            1
+#define _Sine_          0
+#define _Square_        1
+#define _Triangle_      2
+#define _Frequency_     0                           // For use with RotaryEnc array
+#define _Level_         1
+#define _WaveForm_      2
 
 #include <stdio.h>
 #include <math.h>
@@ -28,78 +80,17 @@
 #include "FastDAC.pio.h"
 #include "SlowDAC.pio.h"
 
-// Define all GPIO connections...
-                                                    // Switch connections...
-                                                    // ┌──────────┬────────────┬──────────────────────┐
-                                                    // │ PGA2040  │ Connection │ Function             │
-                                                    // ├──────────┼────────────┼──────────────────────┤
-const uint SW0          =  16;                      // │ GPIO 16  │ Switch 0   │ 0=Level,1=Freq       │
-const uint SW1          =  15;                      // │ GPIO 15  │ Switch 1   │ 0=Sine, 1=Square     │
-const uint SW2          =  18;                      // │ GPIO 18  │ Switch 2   │ 0=Triangle, 1=Square │
-const uint SW3          =  17;                      // │ GPIO 17  │ Switch 3   │ 0=Hz, 1=KHz          │
-const uint SW4          =  19;                      // │ GPIO 19  │ Switch 4   │                      │
-                                                    // └──────────┴────────────┴──────────────────────┘
-                                                    // Nixie connections...
-                                                    // Note: Cathodes - connect through a 74141 Nixie driver chip,
-                                                    //       so only 4 data bits are required
-                                                    // ┌──────────┬────────────┬──────────────────────┐
-                                                    // │ PGA2040  │ Connection │ Function             │
-                                                    // ├──────────┼────────────┼──────────────────────┤
-const uint Anode_0      = 27;                       // │ GPIO 27  │ Anode 0    │ Units                │
-const uint Anode_1      = 28;                       // │ GPIO 28  │ Anode 0    │ 10's                 │
-const uint Anode_2      = 29;                       // │ GPIO 29  │ Anode 0    │ 100's                │
-const uint Cathode_0    = 23;                       // │ GPIO 23  │ Cathode 0  │ Data bit 0           │
-const uint Cathode_1    = 24;                       // │ GPIO 24  │ Cathode 0  │ Data bit 1           │
-const uint Cathode_2    = 25;                       // │ GPIO 25  │ Cathode 0  │ Data bit 2           │
-const uint Cathode_3    = 26;                       // │ GPIO 26  │ Cathode 0  │ Data bit 3           │
-                                                    // └──────────┴────────────┴──────────────────────┘
-#define SPI_PORT        spi1                        // The SPI connections will require RP2040 SPI port #1...
-                                                    // ┌──────────┬────────────────┬──────────────────┐
-                                                    // │ PGA2040  │ Connection     │ MCP41010         │
-                                                    // ├──────────┼────────────────┼──────────────────┤
-const uint PIN_SCK       = 10;                      // │ GPIO 10  │ SCK/spi1_sclk  │ SCK (pin 2)      │
-const uint PIN_MOSI      = 11;                      // │ GPIO 11  │ MOSI/spi1_tx   │ SI  (pin 3)      │
-const uint PIN_CS        = 12;                      // │ GPIO 12  │ Chip select    │ CS  (pin 1)      │
-                                                    // └──────────┴────────────────┴──────────────────┘
-const uint Onboard_LED  = 14;                       // Onboard LED
-const uint EncoderClock = 21;
-const uint EncoderData  = 22;
-                                                    // D2A connections...
-                                                    // Note: These are defined in the FastDAC.pio and SlowDAC.pio files.
-                                                    //       They are only included here for completeness.
-                                                    // ┌──────────┬─────────────┬─────────────────────┐
-                                                    // │ PGA2040  │ Connection  │ Function            │
-                                                    // ├──────────┼─────────────┤─────────────────────┤
-                                                    // │ GPIO  2  │  Data bit 0 │ Least significant   │                                                   
-                                                    // │ GPIO  3  │  Data bit 1 │                     │
-                                                    // │ GPIO  4  │  Data bit 2 │                     │
-                                                    // │ GPIO  5  │  Data bit 3 │                     │
-                                                    // │ GPIO  6  │  Data bit 4 │                     │
-                                                    // │ GPIO  7  │  Data bit 5 │                     │
-                                                    // │ GPIO  8  │  Data bit 6 │                     │
-                                                    // │ GPIO  9  │  Data bit 7 │ Most significant    │
-                                                    // └──────────┴─────────────┘─────────────────────┘
-// Define useful constants...
-#define Slow            0
-#define Fast            1
-#define _Sine_          0
-#define _Square_        1
-#define _Triangle_      2
-#define _Frequency_     0                           // For use with RotaryEnc array
-#define _Level_         1
-#define _WaveForm_      2
-
-// Define GPIO lookup tables...
+/* // Define GPIO lookup tables...
 #ifdef DEBUG
 // SW0 and SW1 assigned to RS-232 port...
-//const unsigned int GPIO_Inputs[] = {SW2, SW3, SW4, SW5, SW6, EncoderClock, EncoderData};
-const unsigned int GPIO_Inputs[] = {SW0, SW1, SW2, SW3, SW4, EncoderClock, EncoderData};
-const unsigned GPIO_Outputs[] = {Anode_0, Anode_1, Anode_2, Cathode_0, Cathode_1, Cathode_2, Cathode_3, PIN_CS, PIN_SCK, PIN_MOSI};
+//const unsigned int All_GPIO_Ins[] = {SW2, SW3, SW4, SW5, SW6, EncoderClock, EncoderData};
+const unsigned int All_GPIO_Ins[] = {SW0, SW1, SW2, SW3, SW4, EncoderClock, EncoderData};
+const unsigned All_GPIO_Outs[] = {Anode_0, Anode_1, Anode_2, Cathode_0, Cathode_1, Cathode_2, Cathode_3, PIN_CS, PIN_SCK, PIN_MOSI};
 #else
 // SW0 and SW1 assigned as GPIO inputs...
-const unsigned int GPIO_Inputs[] = {SW0, SW1, SW2, SW3, SW4, SW5, SW6, SW7, EncoderClock, EncoderData};
-const unsigned GPIO_Outputs[] = {Anode_0, Anode_1, Anode_2, Cathode_0, Cathode_1, Cathode_2, Cathode_3, PIN_CS};
-#endif
+const unsigned int All_GPIO_Ins[] = {SW0, SW1, SW2, SW3, SW4, SW5, SW6, SW7, EncoderClock, EncoderData};
+const unsigned All_GPIO_Outs[] = {Anode_0, Anode_1, Anode_2, Cathode_0, Cathode_1, Cathode_2, Cathode_3, PIN_CS};
+#endif */
 
 // Global variables...
 int FreqMultiplier, ModeSelect, WaveSelect, ScanCtr, NixieVal, ScaledVal, Frequency, UpdateReq, GPIO_count;
@@ -114,8 +105,11 @@ int NixieBuffer[3];                                 // Values to be displayed on
                                                     //                                          - Tube2=>100's
 int raw_sin[BitMapSize] ;
 unsigned short DAC_data[BitMapSize] __attribute__ ((aligned(2048))) ;           // Align DAC data
+const unsigned int All_GPIO_Ins[] = {SW0, SW1, SW2, SW3, SW4, EncoderClock, EncoderData};
+const unsigned All_GPIO_Outs[] = {Anode_0, Anode_1, Anode_2, Cathode_0, Cathode_1, Cathode_2, Cathode_3, PIN_CS, PIN_SCK, PIN_MOSI};
 
-void blink_pin_forever(PIO pio, uint sm, uint offset, uint pin, uint freq);
+// Prevent '<function> was not declared in this scope' message...
+void gpio_callback(uint gpio, uint32_t events);
 
 class RotaryEncoder {
 // Class to initialise a state machine to read the rotation of the rotary encoder
@@ -266,11 +260,7 @@ public:
         channel_config_set_write_increment(&fc, false);                         // don't increment write address
         channel_config_set_dreq(&fc, pio_get_dreq(pio, _StateMachine, true));   // Transfer when PIO SM TX FIFO has space
         channel_config_set_chain_to(&fc, ctrl_chan);                            // chain to the controller DMA channel
-#ifdef EIGHTBITDAC        
         channel_config_set_ring(&fc, false, 9);                                 // 8 bit DAC 1<<9 byte boundary on read ptr. This is why we needed alignment!
-#else
-        channel_config_set_ring(&fc, false, 7);                                 // 6 bit DAC 1<<7 byte boundary on read ptr. This is why we needed alignment!
-#endif
         dma_channel_configure(
             data_chan,                                                          // Channel to be configured
             &fc,                                                                // The configuration we just created
@@ -331,6 +321,39 @@ static uint StateMachine[2];
 };
 // Global Var...
 uint DMAtoDAC_channel::StateMachine[2];
+
+void GPIO_Init () {
+// Initialise GPIO ports, and enable interupts.
+// Note: Ports used by the state machines are initialised in the State Machine helper functions.
+// Initialise GPIO Outputs...
+    GPIO_count = sizeof(All_GPIO_Outs)/sizeof(*All_GPIO_Outs);
+    for ( uint i = 0; i < GPIO_count; i++ ) {
+        gpio_init(All_GPIO_Outs[i]);
+        gpio_set_dir(All_GPIO_Outs[i], GPIO_OUT);
+    }
+    gpio_put(PIN_CS, 1);                                                        // SPI chip select is active-low, so set to inactive state
+
+/* //Initialise PIO Outputs for DAC...
+    for ( uint i = 0; i < DAC_Bits; i++ ) {
+        gpio_set_slew_rate(GPIOvals[i+2],GPIO_SLEW_RATE_FAST);                  // GPIO Warp factor 10
+        gpio_set_drive_strength(GPIOvals[i+2],GPIO_DRIVE_STRENGTH_12MA);
+    } */
+
+// Initialise GPIO Inputs...
+// TBD - DO I WANT PULL UPS ON THE ENCODER PINS ???
+    GPIO_count = sizeof(All_GPIO_Ins)/sizeof(*All_GPIO_Ins);
+    for ( uint i = 0; i < GPIO_count; i++ ) {
+        gpio_init(All_GPIO_Ins[i]);
+        gpio_set_dir(All_GPIO_Ins[i], GPIO_IN);
+        gpio_pull_up(All_GPIO_Ins[i]);                                           // Enable pull up
+    }
+// Enable interupts on the GPIO inputs...
+    gpio_set_irq_enabled_with_callback(SW0, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback);
+    gpio_set_irq_enabled(SW1, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
+    gpio_set_irq_enabled(SW2, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
+    gpio_set_irq_enabled(SW3, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
+    gpio_set_irq_enabled(SW4, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
+}
 
 void WriteCathodes (int Data) {
 // Create bit pattern on cathode GPIO's corresponding to the Data input...
@@ -454,7 +477,7 @@ void gpio_callback(uint gpio, uint32_t events) {
 // Scan down through input ports and create status bitmap...
     for (int i=GPIO_count-2; i>=0 ; i--) {                                      // Note: 'GPIOCount-2' skips encoder pins
         SwitchStatus <<= 1;                                                     // Bit shift left
-        CurBit = gpio_get(GPIO_Inputs[i]);
+        CurBit = gpio_get(All_GPIO_Ins[i]);
         PrevBit = PrevStatus & BitMask;
         SwitchStatus += CurBit;
 //      printf("Bit %d - Masked=%08b value=%b SwitchStatus=%08b\n",i,PrevBit,CurBit,SwitchStatus);
@@ -499,7 +522,7 @@ void gpio_callback(uint gpio, uint32_t events) {
                     UpdateReq = 0b010;                              // Flag to update the frequency
                     break;
             }
-//          printf("Bit %d / Switch %d / GPIO %2d has changed. %b->%b\n",i,i+2,GPIO_Inputs[i],PrevBit,CurBit);
+//          printf("Bit %d / Switch %d / GPIO %2d has changed. %b->%b\n",i,i+2,All_GPIO_Ins[i],PrevBit,CurBit);
         }
         BitMask >>= 1;                                                       // Next bit
     }
@@ -511,6 +534,7 @@ int main() {
     static const float blink_freq = 16000;                                      // Reduce SM clock to keep flash visible...
     static const float rotary_freq = 16000;                                     // Clock speed reduced to eliminate rotary encoder jitter...
 //  set_sys_clock_khz(280000, true);                                            // Overclocking the core by a factor of 2 allows 1MHz from DAC
+                                                                                // !! Works on Pico - Fails on PGA2040 !!
     float blink_div = (float)clock_get_hz(clk_sys) / blink_freq;                //   ... calculate the required blink SM clock divider
     float rotary_div = (float)clock_get_hz(clk_sys) / rotary_freq;              //... then calculate the required rotary encoder SM clock divider
 
@@ -518,34 +542,7 @@ int main() {
     stdio_init_all();                                                           // Needed for printf
 #endif
 
-// Initialise GPIO Outputs...
-    GPIO_count = sizeof(GPIO_Outputs)/sizeof(*GPIO_Outputs);
-    for ( uint i = 0; i < GPIO_count; i++ ) {
-        gpio_init(GPIO_Outputs[i]);
-        gpio_set_dir(GPIO_Outputs[i], GPIO_OUT);
-    }
-    gpio_put(PIN_CS, 1);                                                        // SPI chip select is active-low, so set to inactive state
-
-/* //Initialise PIO Outputs for DAC...
-    for ( uint i = 0; i < DAC_Bits; i++ ) {
-        gpio_set_slew_rate(GPIOvals[i+2],GPIO_SLEW_RATE_FAST);                  // GPIO Warp factor 10
-        gpio_set_drive_strength(GPIOvals[i+2],GPIO_DRIVE_STRENGTH_12MA);
-    } */
-
-// Initialise GPIO Inputs...
-// TBD - DO I WANT PULL UPS ON THE ENCODER PINS ???
-    GPIO_count = sizeof(GPIO_Inputs)/sizeof(*GPIO_Inputs);
-    for ( uint i = 0; i < GPIO_count; i++ ) {
-        gpio_init(GPIO_Inputs[i]);
-        gpio_set_dir(GPIO_Inputs[i], GPIO_IN);
-        gpio_pull_up(GPIO_Inputs[i]);                                           // Enable pull up
-    }
-// Enable GPIO interupts...
-    gpio_set_irq_enabled_with_callback(SW0, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback);
-    gpio_set_irq_enabled(SW1, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
-    gpio_set_irq_enabled(SW2, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
-    gpio_set_irq_enabled(SW3, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
-    gpio_set_irq_enabled(SW4, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
+    GPIO_Init();                                                                // Initialise GPIO ports and enable interupts.
 
 // Set SPI0 to 0.5MHz...
     spi_init(SPI_PORT, 500 * 1000);
