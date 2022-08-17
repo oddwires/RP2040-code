@@ -15,10 +15,10 @@
 // Note: No divider is specified for the SM, so it will default to the same speed as the CPU.
 
 void pio_FastDAC_program_init(PIO pio, uint sm, uint offset, uint pin) {
-    for (uint i=0; i<DAC_Bits; i++) { pio_gpio_init(pio, i+2); }        // Allow PIO to control GPIO pins as outputs
-    pio_sm_set_consecutive_pindirs(pio, sm, 2, DAC_Bits, true);         // Set the pin direction to output (in PIO)
+    for (uint i=D2A_Base; i<DAC_Bits; i++) { pio_gpio_init(pio, i); }   // Allow PIO to control GPIO pins as outputs
+    pio_sm_set_consecutive_pindirs(pio, sm, D2A_Base, DAC_Bits, true);  // Set the pin direction to output (in PIO)
     pio_sm_config c = pio_FastDAC_program_get_default_config(offset);   // Define PIO Configuration structure
-    sm_config_set_out_pins(&c, 2, DAC_Bits);                            // Configure pins to be targeted by the OUT (and MOV) commands
+    sm_config_set_out_pins(&c, D2A_Base, DAC_Bits);                     // Configure pins to be targeted by the OUT (and MOV) commands
     sm_config_set_out_shift(&c, true, true, DAC_Bits);                  // Shift right, Autopull enabled, 6/8 bits
     pio_sm_init(pio, sm, offset, &c);                                   // Load configuration and jump to start of the program
     pio_sm_set_enabled(pio, sm, true);    
