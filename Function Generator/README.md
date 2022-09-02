@@ -1,6 +1,6 @@
-![alt text](https://github.com/oddwires/RP2040/blob/master/Function%20Generator/Images/work-in-progress.gif)****This is a Work In Progress project.****
+![alt text](https://github.com/oddwires/RP2040/blob/master/Function%20Generator/Images/work-in-progress.gif)****This project is a Work In Progress.****
 ![alt text](https://github.com/oddwires/RP2040/blob/master/Function%20Generator/Images/work-in-progress.gif)  
-(My current thinking is this would all be so much better if it had two channels)
+(My current thinking is this would all be so much better if it had two channels, so it could display Lissajous figures)
 # Function Generator on a Pimoroni PGA2040. #
 
 * Development + Debug environment:
