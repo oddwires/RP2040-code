@@ -5,7 +5,7 @@
   * Use the additional GPIO ports to implement a second DMA channel and add code for Lissajou figures.
   * Port the clock code from [here](https://www.micro-examples.com/articles/index.php?title=PicOClock)
 
-# Function Generator on a Pimoroni PGA2040. #
+# Function Generator on a RP2040. #
 
 * Direct digital synthesis (DDS) Function Generator
   * Target device = Pimoroni PGA2040 to maximise GPIO connections
