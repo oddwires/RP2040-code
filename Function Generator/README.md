@@ -1,6 +1,10 @@
-![alt text](https://github.com/oddwires/RP2040/blob/master/Function%20Generator/Images/work-in-progress.gif)****This project is a Work In Progress.****
-![alt text](https://github.com/oddwires/RP2040/blob/master/Function%20Generator/Images/work-in-progress.gif)  
-(My current thinking is this would all be sooo much better if it had two channels, then it could display Lissajous figures)
+![alt text](https://github.com/oddwires/RP2040/blob/master/Function%20Generator/Images/work-in-progress.gif)****Work In Progress.****
+![alt text](https://github.com/oddwires/RP2040/blob/master/Function%20Generator/Images/work-in-progress.gif)
+* TBD:
+  * Move the display to an SPI module to free up some additional GPIO ports.
+  * Use the additional GPIO ports to implement a second DMA channel and add code for Lissajou figures.
+  * Port the clock code from [here](https://www.micro-examples.com/articles/index.php?title=PicOClock)
+
 # Function Generator on a Pimoroni PGA2040. #
 
 * Direct digital synthesis (DDS) Function Generator
