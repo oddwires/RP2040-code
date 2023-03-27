@@ -1,27 +1,35 @@
 .program pio_blink
+; Turn on LED for 1002 cycles and off for 1002 cycles.
+; Large delays are required to allow the State Machine to toggle at frequencies as low as 1Hz.
+; Note: Oscilloscope shows this runs about 2% fast indicating an issue with the cycle count.
 .wrap_target
-        set y,0b00001
-        mov pins, y
-        set x, 31
+    set pins, 1         ; Turn LED on
+    set x,25
+                        ; 2 cycles to this point
 label01:
-        jmp x--, label01        [31]
-;
-        set y,0b00000
-        mov pins, y
-        set x, 31
+    nop         [19]    ; 20 cycles
+    nop         [18]    ; 19 cycles
+    jmp x--, label01    ; 1 cycles
+;                       ; 2 + 25*(20+19+1) = 1002 cycles to this point
+                        ; (restart cycle count)
+    set pins, 0         ; Turn LED off
+    set x,25
+                        ; 2 cycles to this point
 label02:
-        jmp x--, label02        [31]
-.wrap                           ; Blink forever!
+    nop         [19]    ; 20 cycles
+    nop         [18]    ; 19 cycles
+    jmp x--, label02    ; 1 cycles
+;                       ; 2 + 25*(20+19+1) = 1002 cycles to this point
+.wrap                   ; Blink forever!
 
 % c-sdk {
 // this is a raw helper function for use by the user which sets up the GPIO output, and configures the SM to output on a particular pin
 
-void blink_program_init(PIO pio, uint sm, uint offset, uint pin, uint div) {
+void blink_program_init(PIO pio, uint sm, uint offset, uint pin) {
    pio_gpio_init(pio, pin);
    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
    pio_sm_config c = pio_blink_program_get_default_config(offset);
-   sm_config_set_clkdiv(&c, div);                                   // Set the clock divider for the state machine
-   sm_config_set_out_pins(&c, pin, 1);
+   sm_config_set_set_pins(&c, pin, 1);
    pio_sm_init(pio, sm, offset, &c);
 }
 %}

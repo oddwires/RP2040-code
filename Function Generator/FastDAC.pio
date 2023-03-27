@@ -12,15 +12,18 @@
 % c-sdk {
 // This is a raw helper function for use by the user which sets up the GPIO output, and configures the SM
 // to output on a particular pin. 
-// Note: No divider is specified for the SM, so it will default to the same speed as the CPU.
+// Note: 1) No divider is specified for the SM, so it will default to the same speed as the CPU.
+//       2) Hard coded to use 8 bit DAC hardware
 
-void pio_FastDAC_program_init(PIO pio, uint sm, uint offset, uint pin) {
-    for (uint i=D2A_Base; i<DAC_Bits; i++) { pio_gpio_init(pio, i); }   // Allow PIO to control GPIO pins as outputs
-    pio_sm_set_consecutive_pindirs(pio, sm, D2A_Base, DAC_Bits, true);  // Set the pin direction to output (in PIO)
-    pio_sm_config c = pio_FastDAC_program_get_default_config(offset);   // Define PIO Configuration structure
-    sm_config_set_out_pins(&c, D2A_Base, DAC_Bits);                     // Configure pins to be targeted by the OUT (and MOV) commands
-    sm_config_set_out_shift(&c, true, true, DAC_Bits);                  // Shift right, Autopull enabled, 6/8 bits
-    pio_sm_init(pio, sm, offset, &c);                                   // Load configuration and jump to start of the program
+void pio_FastDAC_program_init(PIO pio, uint sm, uint offset, uint start_pin) {
+    for (uint i=start_pin; i<(start_pin+8); i++) { 
+        pio_gpio_init(pio, i); 
+    }  // Allow PIO to control GPIO pins as outputs
+    pio_sm_set_consecutive_pindirs(pio, sm, start_pin, 8, true);             // Set the pin direction to output (in PIO)
+    pio_sm_config c = pio_FastDAC_program_get_default_config(offset);        // Define PIO Configuration structure
+    sm_config_set_out_pins(&c, start_pin, 8);                                // Configure pins to be targeted by the OUT (and MOV) commands
+    sm_config_set_out_shift(&c, true, true, 8);                              // Shift right, Autopull enabled, 6/8 bits
+    pio_sm_init(pio, sm, offset, &c);                                        // Load configuration and jump to start of the program
     pio_sm_set_enabled(pio, sm, true);    
 }
 %}

@@ -1,267 +1,143 @@
-// Compile options...
-#define DEBUG                                       // Enable debug text output to USB connector.
-// End of compile options
+#include <stdio.h>
+#include <string.h>
+#include "pico/stdlib.h"
+#include "pico/binary_info.h"
+#include "hardware/spi.h"
+#include <math.h>
+#include "hardware/clocks.h"
+#include "hardware/dma.h"
+#include "blink.pio.h"
+#include "FastDAC.pio.h"
+#include "SlowDAC.pio.h"
 
 /////////////////////////////
 // Define GPIO connections...
 /////////////////////////////
 
-// SPI Port connections...
-                                                    // ┌──────────┬────────────────┬─────────────────────┐
-                                                    // │ PGA2040  │ Connection     │ MCP41010            │
-                                                    // ├──────────┼────────────────┼─────────────────────┤
-#define PIN_SCK         10                          // │ GPIO 10  │ SCK/spi1_sclk  │ SCK (pin 2)         │
-#define PIN_MOSI        11                          // │ GPIO 11  │ MOSI/spi1_tx   │ SI  (pin 3)         │
-#define PIN_CS          12                          // │ GPIO 12  │ Chip select    │ CS  (pin 1)         │
-                                                    // └──────────┴────────────────┴─────────────────────┘
-#define SPI_PORT        spi1                        // These SPI connections require the use of RP2040 SPI port #1
-// Note: 1) The SPI Port only works on specific pins, so this port is defined first.
-//       2) GPIO 12 would usualy be assigned to spi1_rx. But as the SPI port will never have to read data, the pin is re-assigned 
-//          as the Chip Select pin for the MCP41010 digital potentiometer.
+// Note: The SPI Port only works through specific pins, so this port is defined first.
+// SPI Port connections...                          // ┌──────────┬───────────────┬─────────────┐──────────────┐
+                                                    // │ PGA2040  │ Connection    │ MCP41010    │ Nixie module │
+                                                    // ├──────────┼───────────────┼─────────────┤──────────────┤
+#define PIN_RX          16                          // │ GPIO 16  │ RX/spi1_rx    │             │      -       │
+//#define PIN_CS          17                        // │ GPIO 17  │ CS/spi1_cs    │             │              │ can this be re-defined ?
+#define PIN_CLK         18                          // │ GPIO 18  │ CLK/spi1_clk  │             │  SCK (blue)  │
+#define PIN_TX          19                          // │ GPIO 19  │ TX/spi1_tx    │             │  SDI (green) │
+#define Nixie_CS        21                          // │ GPIO 21  │ Chip select   │             │  SS1 (white) │
+                                                    // └──────────┴───────────────┴─────────────┘──────────────┘
+#define SPI_PORT        spi0                        // These SPI connections require the use of RP2040 SPI port 0
 
-// Assign the remaining GPIO connections around the SPI Port...
-// D2A connections...
-                                                    // ┌──────────┬─────────────┬────────────────────────┐
-                                                    // │ PGA2040  │ Connection  │ Function               │
-                                                    // ├──────────┼─────────────┤────────────────────────┤
-#define D2A_Base        0                           // │ GPIO  0  │  Data bit 0 │ Least significant      │                                                   
-                                                    // │ GPIO  1  │  Data bit 1 │                        │
-                                                    // │ GPIO  2  │  Data bit 2 │                        │
-                                                    // │ GPIO  3  │  Data bit 3 │                        │
-                                                    // │ GPIO  4  │  Data bit 4 │                        │
-                                                    // │ GPIO  5  │  Data bit 5 │                        │
-                                                    // │ GPIO  6  │  Data bit 6 │                        │
-                                                    // │ GPIO  7  │  Data bit 7 │ Most significant       │
-                                                    // └──────────┴─────────────┘────────────────────────┘
-// Note: 1) The above connections are used by the DMAtoDACchannel class and are assigned to the two state machines.
-//       2) State machines require sequential ports, so these pins are assigned as a block of 8 consecutive pins.
-//       3) Pin assignment, and port initialisation takes place in the State Machine helper functions (FastDAC.pio and SlowDAC.pio files).
-
-// Rotary Encoder connections...
-                                                    // ┌──────────┬────────────────┬──────────────────────┐
-                                                    // │ PGA2040  │ Connection     │ Function             │
-                                                    // ├──────────┼────────────────┼──────────────────────┤
-#define RotaryEncBase   8                           // │ GPIO 8   │ Data bit A     │ Encoded data         │
-                                                    // │ GPIO 9   │ Data bit B     │ Encoded data         │
-                                                    // └──────────┴────────────────┴──────────────────────┘
-// Note: 1) These are used by the RotaryEncoder class and are assigned to a state machine. This RotaryEncoder class requires the above
-//          two connections to be consecutive.
-
-// Nixie connections...
-                                                    // ┌──────────┬────────────────┬──────────────────────┐
-                                                    // │ PGA2040  │ Connection     │ Function             │
-                                                    // ├──────────┼────────────────┼──────────────────────┤
-#define Cathode_0       23                          // │ GPIO 23  │ Cathode 0      │ Data bit 0 (LSB)     │
-#define Cathode_1       24                          // │ GPIO 24  │ Cathode 1      │ Data bit 1           │
-#define Cathode_2       25                          // │ GPIO 25  │ Cathode 2      │ Data bit 2           │
-#define Cathode_3       26                          // │ GPIO 26  │ Cathode 3      │ Data bit 3 (MSB)     │
-#define Anode_0         27                          // │ GPIO 27  │ Anode 0        │ Units                │
-#define Anode_1         28                          // │ GPIO 28  │ Anode 1        │ 10's                 │
-#define Anode_2         29                          // │ GPIO 29  │ Anode 2        │ 100's                │
-                                                    // └──────────┴────────────────┴──────────────────────┘
-// Note: 1) Connections are assigned to available GPIO ports from the top down.
-//       2) Cathodes are connect through a 74141 Nixie driver chip, requiring only 4 data bits.
-//       3) Connections do not need to run cosecutively, or in any particular order.
-
-// The remaining 10 GPIO's (13 to 22) can be randomly assigned to switches and LED's
-// Switch connections...
-                                                    // ┌──────────┬────────────────┬──────────────────────┐
-                                                    // │ PGA2040  │ Connection     │ Function             │
-                                                    // ├──────────┼────────────────┼──────────────────────┤
-#define SW0_A           13                          // │ GPIO 13  │ A=0, B=1       │ Function Generator   │
-                                                    // │          │ A=1, B=1       │ Sweep                │
-#define SW0_B           14                          // │ GPIO 14  │ A=1, B=0       │ (future use)         │
-#define SW1             15                          // │ GPIO 15  │ A=0            │ Frequency            │
-                                                    // │          │ A=1            │ Level                │
-#define SW2_A           16                          // │ GPIO 16  │ A=0, B=1       │ Sine wave            │
-                                                    // │          │ A=1, B=1       │ Square wave          │
-#define SW2_B           17                          // │ GPIO 17  │ A=1, B=0       │ Triangle wave        │
-#define SW3             18                          // │ GPIO 18  │ A=0            │ Hz                   │
-                                                    // │          │ A=1            │ KHz                  │
-                                                    // └──────────┴────────────────┴──────────────────────┘
-// Note: 1) Switch inputs use the RP2040 weak pull up resistors, so are active low.
-//       2) Switches with A and B designators are On-Off-On toggle switches with center pin grounded.
-//       3) Switches without A and B designators are On-Off toggle switches.
-
-// Other connections...
-//    TBD - DO I NEED, OR EVEN WANT THIS ?????
-#define Onboard_LED     22                          // Onboard LED
-
-////////////////////////////////////////
-// End of GPIO connections deffinitions.
-////////////////////////////////////////
-
-// Useful constants...
-#define DAC_Bits        8                           // Width of hardware DAC in bits.
+#define _A              0                           // DAC channel alias
+#define _B              1
+#define LED             20                          // GPIO connected to LED
 #define BitMapSize      256                         // Match X to Y resolution
+//#define BitMapSize      360                       // won't work - DMA needs to operate as a power of 2
 #define Slow            0
 #define Fast            1
-#define _Sine_          0
+#define _Sine_          0                           // Permited values for variable WaveForm_Type
 #define _Square_        1
 #define _Triangle_      2
-#define _Frequency_     0                           // For use with RotaryEnc array
-#define _Level_         1
-#define _WaveForm_      2
+#define _GPIO_          0
+#define _PIO_           1
+#define _SM_fast_       2
+#define _SM_slow_       3
+#define _SM_code_fast_  4
+#define _SM_code_slow_  5
+#define _DMA_ctrl_fast_ 6
+#define _DMA_ctrl_slow_ 7
+#define _DMA_data_fast_ 8
+#define _DMA_data_slow_ 9
+#define _Funct_        10
+#define _Phase_        11
+#define _Freq_         12
+#define _Range_        13
+#define _DutyC_        14
 
-#include <stdio.h>
-#include <math.h>
-#include <cstring>
-#include "pico/stdlib.h"
-#include "hardware/pio.h"
-#include "hardware/irq.h"
-#include "hardware/clocks.h"
-#include "hardware/dma.h"
-#include "hardware/spi.h"
-#include "rotary_encoder.pio.h"
-#include "blink.pio.h"
-#include "FastDAC.pio.h"
-#include "SlowDAC.pio.h"
+// TBD - these should probably go in the object.
+unsigned short DAC_data_A[BitMapSize] __attribute__ ((aligned(2048))) ;     // Align DAC data
+unsigned short DAC_data_B[BitMapSize] __attribute__ ((aligned(2048))) ;     // Align DAC data
 
-// Global variables...
-int FreqMultiplier, RotaryEncoderMode, WaveSelect, ScanCtr, NixieVal, ScaledVal, Frequency, UpdateReq, GPIO_count;
-uint SW0val, SW1val, SW2val, SW3val;
-uint PrevStatus;
-int WaveForm_Type = _Sine_;
-int RotaryEnc[3];                                   // Changes to the Rotary Encoder will update one of these 3 values.
-                                                    // The value to be updated is determined by the current state of the application.
-const uint32_t transfer_count = BitMapSize ;        // Number of DMA transfers per event
+unsigned short DAC_channel_mask = 0 ;                                       // Binary mask to simultaneously start all DMA channels
+const uint32_t transfer_count = BitMapSize ;                                // Number of DMA transfers per event
+int Value, tmp, WaveForm_Type;
+const uint startLineLength = 8;                                             // the linebuffer will automatically grow for longer lines
+const char eof = 255;                                                       // EOF in stdio.h -is -1, but getchar returns int 255 to avoid blocking
+const char *HelpText = 
+"\tUsage...\n"
+"\t  ?          - Usage\n"
+"\t  S          - Status\n"
+"\t  I          - System info\n"
+"\t  <A/B>fnnn  - Frequency                  ( 0->999 )\n"
+"\t  <A/B>h     - Frequency multiplier  Hz\n"
+"\t  <A/B>k     - Frequency multiplier KHz\n"
+"\t  <A/B>snnn  - Sine wave + harmonic       ( 0->9 )\n"
+"\t  <A/B>qnnn  - Square wave + duty cycle   ( 0->100%% )\n"
+"\t  <A/B>tnnn  - Triangle wave + duty cycle ( 0->100%% )\n"
+"\t  p<A/B>nnn  - Phase                      ( 0->360 degrees )\n"
+"\t  <A/B>      - DAC channel A or B\n"
+"\t        nnn  - Three digit numeric value\n";
 
-int NixieBuffer[3];                                 // Values to be displayed on Nixie tubes    - Tube0=>1's
-                                                    //                                          - Tube1=>10's
-                                                    //                                          - Tube2=>100's
-int raw_sin[BitMapSize] ;
-unsigned short DAC_data[BitMapSize] __attribute__ ((aligned(2048))) ;           // Align DAC data
-const unsigned int All_GPIO_Ins[] = {SW0_A, SW0_B, SW1, SW2_A, SW2_B, SW3, RotaryEncBase, RotaryEncBase+1};
-const unsigned All_GPIO_Outs[] = {Anode_0, Anode_1, Anode_2, Cathode_0, Cathode_1, Cathode_2, Cathode_3, PIN_CS, PIN_SCK, PIN_MOSI};
+class DACchannel {
+    uint Funct, Phase, Freq, Range, DutyC;
+    PIO pio;                                                    // Class wide var to share value with setter function
+    uint StateMachine[2] ;                                      // Fast and slow State Machines
+    unsigned short * DAC_RAM ;                                  // Pointer to RAM data (selects DAC A or B)
+    uint DAC_GPIO, _pioNum, SM_fast, SM_slow, SM_code_fast ;    // Variabes used by the getter function...
+    uint SM_code_slow, ctrl_chan_fast, ctrl_chan_slow ;
+    uint data_chan_fast, data_chan_slow ;
 
-// Prevent '<function> was not declared in this scope' message...
-void gpio_callback(uint gpio, uint32_t events);
-
-class RotaryEncoder {
-// Class to initialise a state machine to read the rotation of the rotary encoder
-//  Based on the GitHub example here... 
-//      https://github.com/GitJer/Some_RPI-Pico_stuff/tree/main/Rotary_encoder
 public:
-    // constructor
-    // rotary_encoder_A is the pin for the A of the rotary encoder.
-    // The B of the rotary encoder has to be connected to the next GPIO.
-    RotaryEncoder(uint rotary_encoder_A, uint freq) {
-        uint8_t rotary_encoder_B = rotary_encoder_A + 1;                            // This is why the GPIO pins need to be consecutive.
-        PIO pio = pio0;                                                             // Use pio 0
-        uint8_t sm = 1;                                                             // Use state machine 1
-        pio_gpio_init(pio, rotary_encoder_A);
-        gpio_set_pulls(rotary_encoder_A, false, false);                             // configure the used pins as input without pull up
-        pio_gpio_init(pio, rotary_encoder_B);
-        gpio_set_pulls(rotary_encoder_B, false, false);                             // configure the used pins as input without pull up
-        uint offset = pio_add_program(pio, &pio_rotary_encoder_program);            // load the pio program into the pio memory...
-        pio_sm_config c = pio_rotary_encoder_program_get_default_config(offset);    // make a sm config...
-        sm_config_set_in_pins(&c, rotary_encoder_A);                                // set the 'in' pins
-        sm_config_set_in_shift(&c, false, false, 0);                                // set shift to left: bits shifted by 'in' enter at the least
-                                                                                    // significant bit (LSB), no autopush
-        irq_set_exclusive_handler(PIO0_IRQ_0, pio_irq_handler);                     // set the IRQ handler
-        irq_set_enabled(PIO0_IRQ_0, true);                                          // enable the IRQ
-        pio0_hw->inte0 = PIO_IRQ0_INTE_SM0_BITS | PIO_IRQ0_INTE_SM1_BITS;
-        pio_sm_init(pio, sm, 16, &c);                                               // init the state machine
-                                                                                    // Note: the program starts after the jump table -> initial_pc = 16
-        pio_sm_set_enabled(pio, sm, true);                                          // enable the state machine
+    void SetFunct(int _value);                                  // Setter functions
+    void SetPhase(int _value);
+    void SetRange(int _value);
+    void SetFreq (int _value);
+    void SetDutyC(int _value);
+    void DACclock(int _frequency);
 
-        #ifdef DEBUG
-        printf("PIO:0 SM:%d - Rotary encoder' @ %dHz\n\n", sm, freq);
-        #endif
-    }
+    int Get_Resource(int _index);                               // Getter function
 
-private:
-    static void pio_irq_handler() {
-        if (pio0_hw->irq & 2) {                                                         // test if irq 0 was raised
-             switch (RotaryEncoderMode) {
-                case 0b001:                                                             // Top: Frequency range 0 to 999
-                    RotaryEnc[_Frequency_]--;
-                    if ( RotaryEnc[_Frequency_] < 0 ) { RotaryEnc[_Frequency_] = 999; }
-                    UpdateReq |= 0b010;                                                 // Flag to update the frequency
-                    break;
-                case 0b010:                                                             // Bottom : Level range 0 to 99
-                    RotaryEnc[_Level_]--;
-                    if ( RotaryEnc[_Level_] < 0 ) { RotaryEnc[_Level_] = 99; }
-                    UpdateReq |= 0b001;                                                 // Flag to update the level
-                    break;
-               case 0b011:                                                              // Middle: WaveForm range 0 to 4
-                   RotaryEnc[_WaveForm_]--;
-                   if ( RotaryEnc[_WaveForm_] < 0 ) { RotaryEnc[_WaveForm_] = 99; }
-                   UpdateReq |= 0b100;                                                  // Flag to update the waveform
-             }
-        }
-        if (pio0_hw->irq & 1) {                                                         // test if irq 1 was raised
-             switch (RotaryEncoderMode) {
-                case 0b001:                                                             // Top: Frequency range 0 to 999
-                    RotaryEnc[_Frequency_]++;
-                    if ( RotaryEnc[_Frequency_] > 999 ) { RotaryEnc[_Frequency_] = 0; }
-                    UpdateReq |= 0b010;                                                 // Flag to update the frequency
-                    break;
-                case 0b010:                                                             // Bottom : Level range 0 to 99
-                    RotaryEnc[_Level_]++;
-                    if ( RotaryEnc[_Level_] > 99 ) { RotaryEnc[_Level_] = 0; }
-                    UpdateReq |= 0b001;                                                 // Flag to update the level
-                    break;
-               case 0b011:                                                              // Middle: WaveForm range 0 to 4
-                   RotaryEnc[_WaveForm_]++;
-                   if ( RotaryEnc[_WaveForm_] > 99) { RotaryEnc[_WaveForm_] = 0; }
-                   UpdateReq |= 0b100;                                                  // Flag to update the waveform
-             }
-        }
-        pio0_hw->irq = 3;                                                               // clear both interrupts
-    }
-    PIO pio;                                                                            // the pio instance
-    uint sm;                                                                            // the state machine
-};
-
-class blink_forever {                                                                   // Class to initialise a state machine to blink a GPIO pin
-public:
-    blink_forever(PIO pio, uint sm, uint offset, uint pin, uint freq, uint blink_div) {
-        blink_program_init(pio, sm, offset, pin, blink_div);
-        pio_sm_set_enabled(pio, sm, true);
-        #ifdef DEBUG
-        printf("PIO:0 SM:%d - Blink @ %dHz\n", sm, freq);
-        #endif
-    }
-};
-
-class DMAtoDAC_channel {
 public:
     // Constructor
     // The PIO clock dividers are 16-bit integer, 8-bit fractional, with first-order delta-sigma for the fractional divider.
     // The clock divisor can vary between 1 and 65536, in increments of 1/256.
     // If DAC_div exceeds 2^16 (65,536), the registers wrap around, and the State Machine clock will be incorrect.
     // A slow version of the DAC State Machine is used for frequencies below 17Hz, allowing the value of DAC_div to
-    // be kept within range.s    
-    DMAtoDAC_channel() {
-        PIO pio = pio1;
-        StateMachine[Fast] = Single_DMA_FIFO_SM_GPIO_DAC(pio,Fast);             // Create the Fast DAC channel (frequencies: 17Hz to 999KHz)
-        StateMachine[Slow] = Single_DMA_FIFO_SM_GPIO_DAC(pio,Slow);             // Create the Slow DAC channel (frequencies: 0Hz to 16Hz)
-    }
+    // be kept within range.
+        void NewDMAtoDAC_channel(PIO _pio) {
+            pio = _pio;                                                             // transfer parameter to class wide var
+            _pioNum = pio_get_index(_pio);
+            _pioNum == 0 ? DAC_GPIO = 0 : DAC_GPIO = 8;                             // Select GPIO's   for DAC
+            _pioNum == 0 ? DAC_RAM = DAC_data_A : DAC_RAM = DAC_data_B;             // Select data RAM for DAC
+            StateMachine[Fast] = Single_DMA_FIFO_SM_GPIO_DAC(_pio,Fast,DAC_GPIO);   // Create the Fast DAC channel (frequencies: 17Hz to 999KHz)
+            StateMachine[Slow] = Single_DMA_FIFO_SM_GPIO_DAC(_pio,Slow,DAC_GPIO);   // Create the Slow DAC channel (frequencies: 0Hz to 16Hz)
+        };
 
 public:
-    int Single_DMA_FIFO_SM_GPIO_DAC(PIO _pio, int _speed) {
+    int Single_DMA_FIFO_SM_GPIO_DAC(PIO _pio, int _speed, uint _startpin) {
     // Create a DMA channel and its associated State Machine.
     // DMA => FIFO => State Machine => GPIO pins => DAC
         uint _pioNum = pio_get_index(_pio);                                     // Get user friendly index number.
         int _offset;
-        char _name[10];
-        uint _StateMachine = pio_claim_unused_sm(_pio, true);                   // Find a free state machine on the specified PIO - error if there are none.
+        uint _StateMachine = pio_claim_unused_sm(_pio, true);                    // Find a free state machine on the specified PIO - error if there are none.
+        uint ctrl_chan = dma_claim_unused_channel(true);                        // Find 2 x free DMA channels for the DAC (12 available)
+        uint data_chan = dma_claim_unused_channel(true);
 
         if (_speed == 1) {
         // Configure the state machine to run the FastDAC program...
-            _offset = pio_add_program(_pio, &pio_FastDAC_program);              // Use helper function included in the .pio file.
-            pio_FastDAC_program_init(_pio, _StateMachine, _offset, 2);
-            strcpy(_name,"Fast");
+            SM_fast = _StateMachine;
+            _offset = pio_add_program(_pio, &pio_FastDAC_program);
+            SM_code_fast = _offset;
+            pio_FastDAC_program_init(_pio, _StateMachine, _offset, _startpin);
+            ctrl_chan_fast = ctrl_chan ;                                        // Make details available to getter functions
+            data_chan_fast = data_chan ;
         } else {
         // Configure the state machine to run the SlowDAC program...
+            SM_slow = _StateMachine;
             _offset = pio_add_program(_pio, &pio_SlowDAC_program);              // Use helper function included in the .pio file.
-            pio_SlowDAC_program_init(_pio, _StateMachine, _offset, 2);
-            strcpy(_name,"Slow");
+            SM_code_slow = _offset;
+            pio_SlowDAC_program_init(_pio, _StateMachine, _offset, _startpin);
+            ctrl_chan_slow = ctrl_chan ;                                        // Make details available to getter functions
+            data_chan_slow = data_chan ;
         }
-        //  Get 2 x free DMA channels for the DAC - panic() if there are none
-        int ctrl_chan = dma_claim_unused_channel(true);
-        int data_chan = dma_claim_unused_channel(true);
 
         //  Setup the DAC control channel...
         //  The control channel transfers two words into the data channel's control registers, then halts. The write address wraps on a two-word
@@ -284,390 +160,446 @@ public:
         channel_config_set_transfer_data_size(&fc, DMA_SIZE_32);                // 32-bit txfers
         channel_config_set_read_increment(&fc, true);                           // increment the read adddress
         channel_config_set_write_increment(&fc, false);                         // don't increment write address
-        channel_config_set_dreq(&fc, pio_get_dreq(pio, _StateMachine, true));   // Transfer when PIO SM TX FIFO has space
+        channel_config_set_dreq(&fc, pio_get_dreq(_pio, _StateMachine, true));  // Transfer when PIO SM TX FIFO has space
         channel_config_set_chain_to(&fc, ctrl_chan);                            // chain to the controller DMA channel
         channel_config_set_ring(&fc, false, 9);                                 // 8 bit DAC 1<<9 byte boundary on read ptr. This is why we needed alignment!
         dma_channel_configure(
             data_chan,                                                          // Channel to be configured
             &fc,                                                                // The configuration we just created
-            &pio->txf[_StateMachine],                                           // Write to FIFO
-            DAC_data,                                                           // The initial read address (AT NATURAL ALIGNMENT POINT)
+            &_pio->txf[_StateMachine],                                          // Write to FIFO
+            DAC_RAM,                                                            // The initial read address (AT NATURAL ALIGNMENT POINT)
             BitMapSize,                                                         // Number of transfers; in this case each is 2 byte.
-            false                                                               // Don't start immediately.
+            false                                                               // Don't start immediately. All 4 control channels need to start simultaneously
+                                                                                // to ensure the correct phase shift is applied.
         );
-        // Note: Both DMA channels are left permanently running. The active channel is selected by enabling/disabling the 
-        // associated State Machine.
-        dma_start_channel_mask(1u << ctrl_chan);                                // Start the control DMA channel
-
-        #ifdef DEBUG
-        printf("%s DMA channel:\n", _name);
-        printf("    PIO:              %d\n",_pioNum);
-        printf("    State machine:    %d\n",_StateMachine);
-        printf("    Program offset:   %d\n",_offset);
-        printf("    DMA Ctrl channel: %d\n",ctrl_chan);
-        printf("    DMA Data channel: %d\n",data_chan);
-        #endif
+        // Note: All DMA channels are left running permanently. 
+        //       The active channel is selected by enabling/disabling the associated State Machine.
+        DAC_channel_mask += (1u << ctrl_chan) ;                                 // Save details of DMA control channel to global variable
 
         return(_StateMachine);
-}
-
-// Setter functions...
-void Set_Frequency(int _frequency){
-    // If DAC_div exceeds 2^16 (65,536), the registers wrap around, and the State Machine clock will be incorrect.
-    // A slow version of the DAC State Machine is used for frequencies below 17Hz, allowing the value of DAC_div to
-    // be kept within range.
-    float DAC_freq = _frequency * BitMapSize;                                   // Target frequency...
-    float DAC_div = 2 * (float)clock_get_hz(clk_sys) / DAC_freq;                // ...calculate the PIO clock divider required for the given Target frequency
-    float Fout = 2 * (float)clock_get_hz(clk_sys) / (BitMapSize * DAC_div);     // Actual output frequency
-    if (_frequency >= 34) {                                                     // Fast DAC ( Frequency range from 34Hz to 999Khz )
-        pio_sm_set_clkdiv(pio, StateMachine[Fast], DAC_div);                    // Set the State Machine clock speed
-        pio_sm_set_enabled(pio, StateMachine[Fast], true);                      // Fast State Machine active
-        pio_sm_set_enabled(pio, StateMachine[Slow], false);                     // Slow State Machine inactive
-    } else {                                                                    // Slow DAC ( 1Hz=>16Hz )
-        DAC_div = DAC_div / 64;                                                 // Adjust DAC_div to keep within useable range
-        DAC_freq = DAC_freq * 64;
-        pio_sm_set_clkdiv(pio, StateMachine[Slow], DAC_div);                    // Set the State Machine clock speed
-        pio_sm_set_enabled(pio, StateMachine[Fast], false);                     // Fast State Machine inactive
-        pio_sm_set_enabled(pio, StateMachine[Slow], true);                      // Slow State Machine active
     }
-#ifdef DEBUG    
-//  printf("Rotation: %03d - Slow SM - SM Div: %8.4f - SM Clk: %07.0gHz - Fout: %.1f",_frequency, DAC_div, DAC_freq, Fout);
-    if (FreqMultiplier == 1 ) {
-        printf("Frequency: %03dHz\n",_frequency);
-    } else {
-        printf("Frequency: %03dKHz\n",_frequency/1000);
-    }
-#endif
-}
-
-//static int offset;
-PIO pio = pio1;
-static uint StateMachine[2];
 };
-// Global Var...
-uint DMAtoDAC_channel::StateMachine[2];
 
-void GPIO_Init () {
-// Initialise GPIO ports, and enable interupts.
-// Note: Ports used by the state machines are initialised in the State Machine helper functions.
-// Initialise GPIO Outputs...
-    GPIO_count = sizeof(All_GPIO_Outs)/sizeof(*All_GPIO_Outs);
-    for ( uint i = 0; i < GPIO_count; i++ ) {
-        gpio_init(All_GPIO_Outs[i]);
-        gpio_set_dir(All_GPIO_Outs[i], GPIO_OUT);
+    void DACchannel::SetFunct(int _value) { Funct = _value; }                   // Function    (Sine/Triangl/Square)
+    void DACchannel::SetPhase(int _value) { Phase = _value; }                   // Phase shift (0->360 degrees)
+    void DACchannel::SetDutyC(int _value) { DutyC = _value; }                   // Duty cycle  (0->100%)
+    void DACchannel::SetRange(int _value) { Range = _value;                     // Range       (Hz/KHz)
+                                            DACclock(Freq * Range); }           // Update State MAchine run speed
+    void DACchannel::SetFreq (int _value) { Freq  = _value;                     // Frequency   (numeric)
+                                            DACclock(Freq * Range); }           // Update State MAchine run speed
+    
+    void DACchannel::DACclock(int _frequency){
+        // If DAC_div exceeds 2^16 (65,536), the registers wrap around, and the State Machine clock will be incorrect.
+        // A slow version of the DAC State Machine is used for frequencies below 17Hz, allowing the value of DAC_div to
+        // be kept within range.
+        float DAC_freq = _frequency * BitMapSize;                               // Target frequency...
+        float DAC_div = 2 * (float)clock_get_hz(clk_sys) / DAC_freq;            // ...calculate the PIO clock divider required for the given Target frequency
+        float Fout = 2 * (float)clock_get_hz(clk_sys) / (BitMapSize * DAC_div); // Actual output frequency
+         if (_frequency >= 34) {                                                // Fast DAC ( Frequency range from 34Hz to 999Khz )
+            pio_sm_set_clkdiv(pio, StateMachine[Fast], DAC_div);                // Set the State Machine clock speed
+            pio_sm_set_enabled(pio, StateMachine[Fast], true);                  // Fast State Machine active
+            pio_sm_set_enabled(pio, StateMachine[Slow], false);                 // Slow State Machine inactive
+        } else {                                                                // Slow DAC ( 1Hz=>16Hz )
+            DAC_div = DAC_div / 64;                                             // Adjust DAC_div to keep within useable range
+            DAC_freq = DAC_freq * 64;
+            pio_sm_set_clkdiv(pio, StateMachine[Slow], DAC_div);                // Set the State Machine clock speed
+            pio_sm_set_enabled(pio, StateMachine[Fast], false);                 // Fast State Machine inactive
+            pio_sm_set_enabled(pio, StateMachine[Slow], true);                  // Slow State Machine active
+        }
     }
-    gpio_put(PIN_CS, 1);                                                        // SPI chip select is active-low, so set to inactive state
 
-/* //Initialise PIO Outputs for DAC...
-    for ( uint i = 0; i < DAC_Bits; i++ ) {
-        gpio_set_slew_rate(GPIOvals[i+2],GPIO_SLEW_RATE_FAST);                  // GPIO Warp factor 10
-        gpio_set_drive_strength(GPIOvals[i+2],GPIO_DRIVE_STRENGTH_12MA);
-    } */
-
-// Initialise GPIO Inputs...
-// TBD - DO I WANT PULL UPS ON THE ENCODER PINS ???
-    GPIO_count = sizeof(All_GPIO_Ins)/sizeof(*All_GPIO_Ins);
-    for ( uint i = 0; i < GPIO_count; i++ ) {
-        gpio_init(All_GPIO_Ins[i]);
-        gpio_set_dir(All_GPIO_Ins[i], GPIO_IN);
-        gpio_pull_up(All_GPIO_Ins[i]);                                           // Enable pull up
+    int DACchannel::Get_Resource(int _index){
+        int result;
+        switch (_index) {
+            case _GPIO_:          result = DAC_GPIO;       break;
+            case _PIO_:           result = _pioNum;        break;
+            case _SM_fast_:       result = SM_fast;        break;
+            case _SM_slow_:       result = SM_slow;        break;
+            case _SM_code_fast_ : result = SM_code_fast;   break;
+            case _SM_code_slow_ : result = SM_code_slow;   break;
+            case _DMA_ctrl_fast_: result = ctrl_chan_fast; break;
+            case _DMA_ctrl_slow_: result = ctrl_chan_slow; break;
+            case _DMA_data_fast_: result = data_chan_fast; break;
+            case _DMA_data_slow_: result = data_chan_slow; break;
+            case _Funct_:         result = Funct;          break;
+            case _Phase_:         result = Phase;          break;
+            case _Freq_:          result = Freq;           break;
+            case _Range_:         result = Range;          break;
+            case _DutyC_:         result = DutyC;          break;
+        }
+    return (result);
     }
-// Enable interupts on the GPIO inputs...
-    gpio_set_irq_enabled_with_callback(SW0_A, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback);
-    gpio_set_irq_enabled(SW0_B, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
-    gpio_set_irq_enabled(SW1, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
-    gpio_set_irq_enabled(SW2_A, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
-    gpio_set_irq_enabled(SW2_B, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
-    gpio_set_irq_enabled(SW3, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
-}
 
-void WriteCathodes (int Data) {
-// Create bit pattern on cathode GPIO's corresponding to the Data input...
-    int  shifted;
-    shifted = Data ;
-    gpio_put(Cathode_0, shifted %2) ;
-    shifted = shifted /2 ;
-    gpio_put(Cathode_1, shifted %2);
-    shifted = shifted /2;
-    gpio_put(Cathode_2, shifted %2);
-    shifted = shifted /2;
-    gpio_put(Cathode_3, shifted %2);
-}
-
-bool Repeating_Timer_Callback(struct repeating_timer *t) {
-// Scans the Nixie Anodes, and transfers data from the Nixie Buffers to the Cathodes.
-    switch (ScanCtr) {
-        case 0:
-            gpio_put(Anode_2, 0) ;                                      // Turn off previous anode
-            WriteCathodes(NixieBuffer[0]);                              // Set up new data on cathodes (Units)
-            gpio_put(Anode_0, 1) ;                                      // Turn on current anode
-            break;
-        case 1:
-            gpio_put(Anode_0, 0) ;                                      // Turn off previous anode
-            WriteCathodes(NixieBuffer[1]);                              // Set up new data on cathodes (10's)
-            gpio_put(Anode_1, 1) ;                                      // Turn on current anode
-            break;
-        case 2:
-            gpio_put(Anode_1, 0) ;                                      // Turn off previous anode
-            WriteCathodes(NixieBuffer[2]);                              // Set up new data on cathodes (100's)
-            gpio_put(Anode_2, 1) ;                                      // Turn on current anode.
+class blink_forever {                                                      // Class to initialise a state machine to blink a GPIO pin
+PIO pio ;                                                                   // Class wide variables to share value with setter function
+uint StateMachine, _offset ;
+public:
+    blink_forever(PIO _pio ) {
+        pio = _pio;                                                        // transfer parameter to class wide var
+        StateMachine = pio_claim_unused_sm(_pio, true);                    // Find a free state machine on the specified PIO - error if there are none.
+        _offset = pio_add_program(_pio, &pio_blink_program);
+        blink_program_init(_pio, StateMachine, _offset, LED );
+        pio_sm_set_enabled(_pio, StateMachine, true);
     }
-    ScanCtr++;
-    if ( ScanCtr > 2 ) { ScanCtr = 0; }                                 // Bump and Wrap the counter
-    return true;
-}
 
-void WaveForm_Update(int _WaveForm_Type, int _WaveForm_Value) {
-    int i;
-    int offset = BitMapSize/2 - 1;                                                                        // Shift sine waves up above X axis
-    const float _2Pi = 6.283;                                                                             // 2*Pi
+    // Setter functions...
+    void Set_Frequency(int _frequency){
+    // Frequency scaled by 2000 as blink.pio requires this number of cycles to complete...
+        float DAC_div = (float)clock_get_hz(clk_sys) /((float)_frequency*2000);
+        pio_sm_set_clkdiv(pio, StateMachine, DAC_div);                      // Set the State Machine clock speed
+    }
+};
+
+void WaveForm_Update(int _DAC_select, int _WaveForm_Type, int _WaveForm_Value, int _Phase) {
+//    int i,h_index, v_offset = BitMapSize/2 - 1;                                                            // Shift sine waves up above X axis
+    int i,j, v_offset = 256/2 - 1;                                                            // Shift sine waves up above X axis
+    const float _2Pi = 6.283;                                                                              // 2*Pi
     float a,b,x1,x2,g1,g2;
+    unsigned short *DAC_data;                                                                              // Pointer to either DAC A or B data area
+
+// Pointer to selected DAC data area...
+    _DAC_select == 0 ? DAC_data = DAC_data_A : DAC_data = DAC_data_B;
+// Scale the phase shift to match data size...    
+    _Phase = _Phase * BitMapSize / 360 ;       // Input  range: 0 -> 360 (degrees)
+                                               // Output range: 0 -> 255 (bytes)
     switch (_WaveForm_Type) {
         case _Sine_:
-            _WaveForm_Value = _WaveForm_Value % 8;                                                        // Sine value cycles after 7
-            #ifdef DEBUG
-            printf("Sine wave: Fundamental + %d harmonics.\n",_WaveForm_Value);
-            #endif
+            _WaveForm_Value = _WaveForm_Value % 10;                                                        // Sine value cycles after 7
             for (i=0; i<BitMapSize; i++) {
-                a = offset * sin((float)_2Pi*i / (float)BitMapSize);                                      // Fundamental frequency...
-                if (_WaveForm_Value >= 1) { a += offset/3  * sin((float)_2Pi*3*i  / (float)BitMapSize); } // Add  3rd harmonic
-                if (_WaveForm_Value >= 2) { a += offset/5  * sin((float)_2Pi*5*i  / (float)BitMapSize); } // Add  5th harmonic
-                if (_WaveForm_Value >= 3) { a += offset/7  * sin((float)_2Pi*7*i  / (float)BitMapSize); } // Add  7th harmonic
-                if (_WaveForm_Value >= 4) { a += offset/9  * sin((float)_2Pi*9*i  / (float)BitMapSize); } // Add  9th harmonic
-                if (_WaveForm_Value >= 5) { a += offset/11 * sin((float)_2Pi*11*i / (float)BitMapSize); } // Add 11th harmonic
-                if (_WaveForm_Value >= 6) { a += offset/13 * sin((float)_2Pi*13*i / (float)BitMapSize); } // Add 13th harmonic
-                if (_WaveForm_Value >= 7) { a += offset/15 * sin((float)_2Pi*15*i / (float)BitMapSize); } // Add 15th harmonic
-                DAC_data[i] = (int)(a)+offset;                                                            // Sum all harmonics and add vertical offset
-            }          
+// Add the phase offset and wrap data beyond buffer end back to the buffer start...
+                j = ( i + _Phase ) % BitMapSize;                                                            // Horizontal index
+                a = v_offset * sin((float)_2Pi*i / (float)BitMapSize);                                      // Fundamental frequency...
+                if (_WaveForm_Value >= 1) { a += v_offset/3  * sin((float)_2Pi*3*i  / (float)BitMapSize); } // Add  3rd harmonic
+                if (_WaveForm_Value >= 2) { a += v_offset/5  * sin((float)_2Pi*5*i  / (float)BitMapSize); } // Add  5th harmonic
+                if (_WaveForm_Value >= 3) { a += v_offset/7  * sin((float)_2Pi*7*i  / (float)BitMapSize); } // Add  7th harmonic
+                if (_WaveForm_Value >= 4) { a += v_offset/9  * sin((float)_2Pi*9*i  / (float)BitMapSize); } // Add  9th harmonic
+                if (_WaveForm_Value >= 5) { a += v_offset/11 * sin((float)_2Pi*11*i / (float)BitMapSize); } // Add 11th harmonic
+                if (_WaveForm_Value >= 6) { a += v_offset/13 * sin((float)_2Pi*13*i / (float)BitMapSize); } // Add 13th harmonic
+                if (_WaveForm_Value >= 7) { a += v_offset/15 * sin((float)_2Pi*15*i / (float)BitMapSize); } // Add 15th harmonic
+                if (_WaveForm_Value >= 8) { a += v_offset/17 * sin((float)_2Pi*17*i / (float)BitMapSize); } // Add 17th harmonic
+                if (_WaveForm_Value >= 9) { a += v_offset/19 * sin((float)_2Pi*19*i / (float)BitMapSize); } // Add 19th harmonic
+                DAC_data[j] = (int)(a)+v_offset;                                                      // Sum all harmonics and add vertical offset
+            }
             break;
         case _Square_: 
-            #ifdef DEBUG
-            printf("Square wave: %2d%% duty cycle\n",_WaveForm_Value);
-            #endif
-            b = _WaveForm_Value * BitMapSize / 100;                                                       // Convert % to value
+            b = _WaveForm_Value * BitMapSize / 100;                                                         // Convert % to value
             for (i=0; i<BitMapSize; i++) {
-                if (b <= i) { DAC_data[i] = 0;   }                                                        // First section low
-                else        { DAC_data[i] = 255; }                                                        // Second section high
+                if (b <= i) { DAC_data[i] = 0;   }                                                          // First section low
+                else        { DAC_data[i] = 255; }                                                          // Second section high
             }
             break;
         case _Triangle_: 
-            #ifdef DEBUG
-            printf("Triangle wave %2d%% duty cycle\n",_WaveForm_Value);
-            #endif
-            x1 = (_WaveForm_Value * BitMapSize / 100) -1;                                                 // Number of data points to peak
-            x2 = BitMapSize - x1;                                                                         // Number of data points after peak
-            g1 = (BitMapSize - 1) / x1;                                                                   // Rising gradient (Max val = BitMapSize -1)
-            g2 = (BitMapSize - 1) / x2;                                                                   // Falling gradient (Max val = BitMapSize -1)
+            x1 = (_WaveForm_Value * BitMapSize / 100) -1;                                                   // Number of data points to peak
+            x2 = BitMapSize - x1;                                                                           // Number of data points after peak
+            g1 = (BitMapSize - 1) / x1;                                                                     // Rising gradient (Max val = BitMapSize -1)
+            g2 = (BitMapSize - 1) / x2;                                                                     // Falling gradient (Max val = BitMapSize -1)
             for (i=0; i<BitMapSize; i++) {
-                if (i <= x1) { DAC_data[i] = i * g1; }                                                    // Rising  section of waveform...
-                if (i > x1)  { DAC_data[i] = (BitMapSize - 1) - ((i - x1) * g2); }                        // Falling section of waveform
+                if (i <= x1) { DAC_data[i] = i * g1; }                                                      // Rising  section of waveform...
+                if (i > x1)  { DAC_data[i] = (BitMapSize - 1) - ((i - x1) * g2); }                          // Falling section of waveform
             }
             break;
     }
+}
 
-    // finished with _WaveForm_Value, so ok to trash it as we update the display...    
-    NixieBuffer[0] = _WaveForm_Value % 10 ;                                                               // First Nixie ( 1's )
-    _WaveForm_Value /= 10 ;                                                                               // _value=>10's
-    NixieBuffer[1] = _WaveForm_Value % 10 ;                                                               // Second Nixie ( 10's )
-    _WaveForm_Value /= 10 ;                                                                               // _value=>100's
-    NixieBuffer[2] = 10 ;                                                                                 // Blank Third Nixie ( 100's )
+void ChanInfo ( DACchannel DACchannel[], int _chanNum) {
+// Print current channel parameters to the console...
+    char Chan, WaveStr[9], MultStr[4];
+    int value = DACchannel[_chanNum].Get_Resource(_Funct_);
+    switch ( value ) {
+        case _Sine_:     strcpy(WaveStr, "Sine");     break;
+        case _Triangle_: strcpy(WaveStr, "Triangle"); break;
+        case _Square_:   strcpy(WaveStr,"Square");
+    }
+    _chanNum == 0 ? Chan = 'A' : Chan = 'B';
+    DACchannel[_chanNum].Get_Resource(_Range_) == 1 ? strcpy(MultStr,"Hz ") : strcpy(MultStr,"KHz");
+    printf("\tChannel %c: Freq:%03d%s Phase:%03d  Wave:%s\n", Chan, DACchannel[_chanNum].Get_Resource(_Freq_),
+        MultStr, DACchannel[_chanNum].Get_Resource(_Phase_), WaveStr);
+}
+
+void SysInfo ( DACchannel DACchannel[]) {
+// Print system and resource allocation details...
+    int a,b,c,d ;
+    printf("\n|-----------------------------------------------------------|\n");
+    printf("| Waveform Generator Ver: 0.0.1       Date: 21/03/2013      |\n");
+    printf("|-----------------------------|-----------------------------|\n");
+    printf("| Channel A                   | Channel B                   |\n");
+    printf("|-----------------------------|-----------------------------|\n");
+    a = DACchannel[_A].Get_Resource(_PIO_);
+    b = DACchannel[_B].Get_Resource(_PIO_);
+    printf("| PIO:             %d          | PIO:             %d          |\n",a,b);
+    a = DACchannel[_A].Get_Resource(_GPIO_);
+    b = DACchannel[_B].Get_Resource(_GPIO_);
+    printf("| GPIO:          %d-%d          | GPIO:         %d-%d          |\n",a,a+7,b,b+7);
+    printf("| BM size:  %8d          | BM size:  %8d          |\n", BitMapSize,  BitMapSize);
+    printf("| BM start: %x          | BM start: %x          |\n", &DAC_data_A[0],  &DAC_data_B[0]);
+    printf("|--------------|--------------|--------------|--------------|\n");
+    printf("| Fast DAC     | Slow DAC     | Fast DAC     |  Slow DAC    |\n");
+    printf("|--------------|--------------|--------------|--------------|\n");
+    a = DACchannel[_A].Get_Resource(_SM_fast_);
+    b = DACchannel[_A].Get_Resource(_SM_slow_);
+    c = DACchannel[_B].Get_Resource(_SM_fast_);
+    d = DACchannel[_B].Get_Resource(_SM_slow_);
+    printf("| SM:        %d | SM:        %d | SM:        %d | SM:        %d |\n",a,b,c,d);
+    a = DACchannel[_A].Get_Resource(_SM_code_fast_);
+    b = DACchannel[_A].Get_Resource(_SM_code_slow_);
+    c = DACchannel[_B].Get_Resource(_SM_code_fast_);
+    d = DACchannel[_B].Get_Resource(_SM_code_slow_);
+    printf("| SM code:  %2d | SM code:  %2d | SM code:  %2d | SM code:  %2d |\n",a,b,c,d);
+    a = DACchannel[_A].Get_Resource(_DMA_ctrl_fast_);                         // Get DMA control channel numbers
+    b = DACchannel[_A].Get_Resource(_DMA_ctrl_slow_);
+    c = DACchannel[_B].Get_Resource(_DMA_ctrl_fast_);
+    d = DACchannel[_B].Get_Resource(_DMA_ctrl_slow_);
+    printf("| DMA ctrl: %2d | DMA ctrl: %2d | DMA ctrl: %2d | DMA ctrl: %2d |\n",a,b,c,d);
+    a = DACchannel[_A].Get_Resource(_DMA_data_fast_);                         // Get DMA control channel numbers
+    b = DACchannel[_A].Get_Resource(_DMA_data_slow_);
+    c = DACchannel[_B].Get_Resource(_DMA_data_fast_);
+    d = DACchannel[_B].Get_Resource(_DMA_data_slow_);
+    printf("| DMA data: %2d | DMA data: %2d | DMA data: %2d | DMA data: %2d |\n",a,b,c,d); 
+    printf("|--------------|--------------|--------------|--------------|\n");
 }
 
 static inline void cs_select() {
     asm volatile("nop \n nop \n nop");
-    gpio_put(PIN_CS, 0);                                                        // Active low
+    gpio_put(Nixie_CS, 0);  // Active low
     asm volatile("nop \n nop \n nop");
 }
 
 static inline void cs_deselect() {
     asm volatile("nop \n nop \n nop");
-    gpio_put(PIN_CS, 1);
+    gpio_put(Nixie_CS, 1);
     asm volatile("nop \n nop \n nop");
 }
 
-static void MCP41010_write(int _data) {
-// Formats and transmits 16 bit data word to the MCP41010 digital potentiometer...
+static void SPI_Nixie_Write(int _data) {
     uint8_t buff[2];
-    buff[0] = 0x11;                                                             // Control byte: Write to potentiometer #1
-    buff[1] = _data;                                                            // Data byte
+    buff[0] = _data / 256;                                                      // MSB data
+    buff[1] = _data % 256;                                                      // LSB data
     cs_select();
     spi_write_blocking(SPI_PORT, buff, 2);
     cs_deselect();
 }
 
-void gpio_callback(uint gpio, uint32_t events) {
-    volatile uint SwitchStatus;
-    busy_wait_us(100);                                      // Switch de-bounce
-    SwitchStatus = gpio_get_all();                          // Snapshot all GPIO inputs
+static char * getLine(bool fullDuplex = false, char lineBreak = '\n') {
+/*
+ *  read a line of any  length from stdio (grows)
+ *
+ *  @param fullDuplex input will echo on entry (terminal mode) when false
+ *  @param linebreak defaults to "\n", but "\r" may be needed for terminals
+ *  @return entered line on heap - don't forget calling free() to get memory back
+ */
+    // th line buffer
+    // will allocated by pico_malloc module if <cstdlib> gets included
+    char * pStart = (char*)malloc(startLineLength); 
+    char * pPos = pStart;  // next character position
+    size_t maxLen = startLineLength; // current max buffer size
+    size_t len = maxLen; // current max length
+    int c;
 
-// SW0 is a 3 way, On-Off-On toggle switch with active low inputs...
-    if (SwitchStatus & (1 << SW0_A)) {                      // Test SW0_A high (inactive)
-        if (SW0val != 0b0001) {                             // Check if value already set
-            SW0val = 0b0001;                                // Set new value
-            printf("Sweep\n");
-        }
-    } else {                                                // SW0_A low (active)
-        if (SW0val != 0b0010) {                             // Check if value already set
-            SW0val = 0b0010;                                // Set new value
-            printf("Function Generator\n");
-        }
-    }
-    if (!(SwitchStatus & (1 << SW0_B))) {                   // Test SW0_B low (active)
-        if (SW0val != 0b0011) {                             // Check if value already set
-            SW0val = 0b0011;                                // Set new value
-            printf("Clock\n"); 
-        }
+    if(!pStart) {
+        return NULL; // out of memory or dysfunctional heap
     }
 
-// Frequency / Level select...
-// SW1 is a single way, On-Off toggle switch with active low inputs.
-    if (SwitchStatus & (1 << SW1)) {                        // Test SW1 high (inactive)
-        if (RotaryEncoderMode != 0b0010) {                         // Check if value already set
-            RotaryEncoderMode = 0b0010;
-            UpdateReq = 0b001;                              // Flag to update the level          
+    while(1) {
+        c = getchar(); // expect next character entry
+        if(c == eof || c == lineBreak) {
+            break;     // non blocking exit
         }
-    } else {                                                // SW1 low (active)
-        if (RotaryEncoderMode != 0b0001) {                         // Check if value already set
-            RotaryEncoderMode = 0b0001;
-            UpdateReq = 0b010;                              // Flag to update the frequency
+        if (fullDuplex) {
+            putchar(c); // echo for fullDuplex terminals
         }
-    }
-
-// SW2 is a 3 way, On-Off-On toggle switch with active low inputs...
-    if (SwitchStatus & (1 << SW2_A)) {                      // Test SW2_A high (inactive) ?
-        if (WaveForm_Type != _Square_) {
-            printf("Square\n");
-            WaveForm_Type = _Square_;            
-            RotaryEncoderMode = 0b011; 
-            RotaryEnc[_WaveForm_] = 50;                     // Set default: 50% duty cycle
-            UpdateReq = 0b0100;                             // Flag to update the waveform
+        if(--len == 0) { // allow larger buffer
+            len = maxLen;
+            // double the current line buffer size
+            char *pNew  = (char*)realloc(pStart, maxLen *= 2);
+            if(!pNew) {
+                free(pStart);
+                return NULL; // out of memory abort
+            }
+            // fix pointer for new buffer
+            pPos = pNew + (pPos - pStart);
+            pStart = pNew;
         }
-    } else {                                                // SW2_A low (active)
-        if (WaveForm_Type != _Sine_) {
-            printf("Sine\n");
-            WaveForm_Type = _Sine_;
-            RotaryEncoderMode = 0b011; 
-            RotaryEnc[_WaveForm_] = 0;                      // Set default: Sine wave, no harmonics
-            UpdateReq = 0b0100;                             // Flag to update the waveform
+        // stop reading if lineBreak character entered 
+        if((*pPos++ = c) == lineBreak) {
+            break;
         }
     }
-    if (!(SwitchStatus & (1 << SW2_B))) {                   // Test SW2_B low (active) ?
-        if (WaveForm_Type != _Triangle_) {
-            printf("Triangle\n");
-            WaveForm_Type = _Triangle_;
-            RotaryEnc[_WaveForm_] = 50;                     // Set default: 50% duty cycle
-            RotaryEncoderMode = 0b011; 
-            UpdateReq = 0b0100;                             // Flag to update the waveform
-        }
-    }
-
-// Hz / KHz selector...
-// SW3 is a single way, On-Off toggle switch with active low inputs.
-    if (SwitchStatus & (1 << SW3)) {                        // Test SW1 high (inactive)
-        if (FreqMultiplier != 1000) {                       // Check if value already set
-            FreqMultiplier = 1000;            
-            UpdateReq = 0b010;                              // Flag to update the frequency       
-        }
-    } else {                                                // SW1 low (active)
-        if (FreqMultiplier != 1) {                          // Check if value already set
-            FreqMultiplier = 1;
-            UpdateReq = 0b010;                              // Flag to update the frequency
-        }
-    }
+    *pPos = '\0';   // set string end mark
+    return pStart;
 }
 
 int main() {
-    static const float blink_freq = 16000;                                      // Reduce SM clock to keep flash visible...
-    static const float rotary_freq = 16000;                                     // Clock speed reduced to eliminate rotary encoder jitter...
-//  set_sys_clock_khz(280000, true);                                            // Overclocking the core by a factor of 2 allows 1MHz from DAC
-                                                                                // !! Works on Pico - Fails on PGA2040 !!
-    float blink_div = (float)clock_get_hz(clk_sys) / blink_freq;                //   ... calculate the required blink SM clock divider
-    float rotary_div = (float)clock_get_hz(clk_sys) / rotary_freq;              //... then calculate the required rotary encoder SM clock divider
+    stdio_init_all();
 
-#ifdef DEBUG
-    stdio_init_all();                                                           // Needed for printf
-#endif
-
-    GPIO_Init();                                                                // Initialise GPIO ports and enable interupts.
-
-// Set SPI0 to 0.5MHz...
+// Set SPI0 at 0.5MHz.
     spi_init(SPI_PORT, 500 * 1000);
-    gpio_set_function(PIN_SCK, GPIO_FUNC_SPI);
-    gpio_set_function(PIN_MOSI, GPIO_FUNC_SPI);
+    gpio_set_function(PIN_CLK, GPIO_FUNC_SPI);
+    gpio_set_function(PIN_TX, GPIO_FUNC_SPI);
 
-    RotaryEncoder my_encoder(RotaryEncBase, rotary_freq);
+// Chip select is active-low, so initialise to a driven-high state...
+    gpio_init(Nixie_CS);
+    gpio_set_dir(Nixie_CS, GPIO_OUT);
+    gpio_put(Nixie_CS, 1);
 
-// Confirm memory alignment
-#ifdef DEBUG
-    printf("Confirm memory alignment...\nBeginning: %x", &DAC_data[0]);
-    printf("\nFirst: %x", &DAC_data[1]);
-    printf("\nSecond: %x\n", &DAC_data[2]);
-    int tmp = BitMapSize;
-    printf("Size (bytes): %d\n\n",tmp);
-#endif
+// Initialise remaining SPI connections...
+    gpio_set_dir(PIN_CLK, GPIO_OUT);
+    gpio_set_dir(PIN_TX, GPIO_OUT);
 
-// Set up the State machines...
-    PIO pio = pio0;
-    uint offset = pio_add_program(pio, &pio_blink_program);
-    blink_forever my_blinker(pio, 0, offset, Onboard_LED, blink_freq, blink_div);   // SM0=>onboard LED
+    DACchannel DACchannel[2];                                                // Array to hold the two DAC channel objects
 
-    DMAtoDAC_channel DataChannel;                                                   // Create DMAtoDAC_channel object
+// Set up the objects controlling the various State Machines...
+// Note: I may need to move both DMA to DAC channels onto the same PIO to acheive accurate phase sync. But for now,
+//       I have just distributed the load across the two PIO's
+    DACchannel[_A].NewDMAtoDAC_channel(pio0);                                   // Create the first DAC channel object in the array
+    DACchannel[_B].NewDMAtoDAC_channel(pio1);                                   // Create the second DAC channel object in the array
+    blink_forever my_blinker(pio0);                                             // Onboard LED blinky object
 
-// Create a repeating timer that calls Repeating_Timer_Callback.
-// If the delay is > 0 then this is the delay between the previous callback ending and the next starting. If the delay is negative
-// then the next call to the callback will be exactly 7ms after the start of the call to the last callback.
-  struct repeating_timer timer;
-    add_repeating_timer_ms(-7, Repeating_Timer_Callback, NULL, &timer);             // 7ms - Short enough to prevent Nixie tube flicker
-                                                                                    //       Long enough to prevent Nixie tube bluring
+// Set LED to rapid flash indicates waiting for USB connection...
+    my_blinker.Set_Frequency(1);                                                // 1Hz
 
-    RotaryEnc[_Frequency_] = 100;                                                   // Default: 100Hz
-    RotaryEnc[_Level_] = 50;                                                        // Default: 50%
-    RotaryEnc[_WaveForm_] = 0;                                                      // Default: Sine wave, no harmonics
+// Wait for USB connection...
+    while (!stdio_usb_connected()) { sleep_ms(100); }
 
-// GPIO interrupt routine is triggerd at start up, but has no 'previous state' info. This means we have to manualy set a couple of defaults...
-// TBD - WHY NOT READ THE SWITCHES ????
-    WaveForm_Type = _Sine_ ;
-    FreqMultiplier = 1;                                                             // Default: Hz
-    RotaryEncoderMode = 0b0001;
-    UpdateReq = 0b0111;                                                             // Set flags to load all default values
+// USB connection established, set LED to regular flash...
+    my_blinker.Set_Frequency(10);                                                // 10Hz
 
-    while (true) {                                                                  // Infinite loop
-        if (UpdateReq) {
-        // Falls through here when any of the rotary encoder values change...
-            if (UpdateReq & 0b010) {                                                // Frequency has changed
-                NixieVal = RotaryEnc[_Frequency_];                                  // Value in range 0->999
-                Frequency = NixieVal * FreqMultiplier;
-                DataChannel.Set_Frequency(Frequency);
+    SysInfo(DACchannel); ;                                                      // Show configuration (optional)
+//  printf(HelpText);                                                           // Show instructions  (optional)
 
-                NixieBuffer[0] = NixieVal % 10 ;                                    // First Nixie ( 1's )
-                NixieVal /= 10 ;                                                    // finished with NixieVal, so ok to trash it. NixieVal=>10's
-                NixieBuffer[1] = NixieVal % 10 ;                                    // Second Nixie ( 10's )
-                NixieVal /= 10 ;                                                    // NixieVal=>100's
-                NixieBuffer[2] = NixieVal % 10 ;                                    // Third Nixie ( 100's )
+// Set default run time settings...
+    DACchannel[_A].SetFreq(100),     DACchannel[_B].SetFreq(100) ;              // 100
+    DACchannel[_A].SetRange(1),      DACchannel[_B].SetRange(1) ;               // Hz
+    DACchannel[_A].SetPhase(0),      DACchannel[_B].SetPhase(180) ;             // 180 phase diff
+    DACchannel[_A].SetFunct(_Sine_), DACchannel[_B].SetFunct(_Sine_) ;          // Sine wave, no harmonics
+    DACchannel[_A].SetDutyC(50),     DACchannel[_B].SetDutyC(50);               // 50% Duty cycle
+
+    WaveForm_Update(_A, _Sine_, DACchannel[_A].Get_Resource(_DutyC_), DACchannel[_A].Get_Resource(_Phase_));
+    WaveForm_Update(_B, _Sine_, DACchannel[_B].Get_Resource(_DutyC_), DACchannel[_B].Get_Resource(_Phase_));
+
+    SPI_Nixie_Write(DACchannel[_A].Get_Resource(_Freq_));                         // Update the Nixie display
+
+// Start all 4 DMA channels simultaneously - this ensures phase sync across all State Machines...
+    dma_start_channel_mask(DAC_channel_mask);
+
+    while(1) {
+        char *inString = getLine(true, '\r') ;
+        tmp = strlen(inString) ;
+        int SelectedChan ;
+
+        if ((tmp<=0) or (tmp>5)) {
+            printf("  Syntax error\n");
+        } else {
+            if      ( inString[0] == '?' ) { printf(HelpText); }                     // Help text
+            else if ( inString[0] == 'S' ) { ChanInfo(DACchannel, _A);                            // Status info
+                                             ChanInfo(DACchannel, _B);      }
+            else if ( inString[0] == 'I' ) { SysInfo(DACchannel); }
+            else {
+                // Select DAC channel A or B...
+                inString[0] == 'A' ? SelectedChan = 0 : SelectedChan = 1;
+                // Find numeric value, based on number of parameters passed. This ensures leading zeros are be ignored...
+                // 1 digit...
+                if ( tmp == 3 ) { Value =   inString[2] - '0'; }
+                // 2 digits...
+                if ( tmp == 4 ) { Value = ((inString[2]-'0') * 10) +   (inString[3]-'0'); }
+                // 3 digits...
+                if ( tmp == 5 ) { Value = ((inString[2]-'0') * 100) + ((inString[3]-'0') * 10) + (inString[4]-'0'); }
+
+                switch ( inString[1] ) {
+                    case 's':                                               // Sine wave
+                        DACchannel[SelectedChan].SetFunct(_Sine_);
+                        DACchannel[SelectedChan].SetDutyC(Value);
+                        WaveForm_Update(SelectedChan, _Sine_, DACchannel[SelectedChan].Get_Resource(_DutyC_),
+                            DACchannel[SelectedChan].Get_Resource(_Phase_));
+                        break;
+                    case 't':                                               // Triangle wave
+                        if ( Value > 100 ) { Value = 100; }                 // Hard limit @ 100%
+                        DACchannel[SelectedChan].SetFunct(_Triangle_);
+                        DACchannel[SelectedChan].SetDutyC(Value);
+                        WaveForm_Update(SelectedChan, _Triangle_, DACchannel[SelectedChan].Get_Resource(_DutyC_),
+                            DACchannel[SelectedChan].Get_Resource(_Phase_));
+                        break;
+                    case 'q':
+                        if ( Value > 100 ) { Value = 100; }                 // Hard limit @ 100%
+                        DACchannel[SelectedChan].SetFunct(_Square_);
+                        DACchannel[SelectedChan].SetDutyC(Value);
+                        WaveForm_Update(SelectedChan, _Square_, DACchannel[SelectedChan].Get_Resource(_DutyC_),
+                            DACchannel[SelectedChan].Get_Resource(_Phase_));
+                        break;
+                    case 'h':                                               // Set Hz
+                        DACchannel[SelectedChan].SetRange(1);
+                        break;
+                    case 'k':                                               // Set KHz
+                        DACchannel[SelectedChan].SetRange(1000);
+                        break;
+                    case 'f':
+                        // Stop the DMA data transfer...
+                        hw_clear_bits(&dma_hw->ch[1].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+                        hw_clear_bits(&dma_hw->ch[3].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+                        hw_clear_bits(&dma_hw->ch[5].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+                        hw_clear_bits(&dma_hw->ch[7].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+
+                        DACchannel[SelectedChan].SetFreq(Value);
+
+                        // Reset the DMA channel pointers to the start of the bitmap data...
+                        //   ( this forces a phase lock between channel A and channel B )
+                        dma_hw->ch[1].al1_read_addr = (long unsigned int)&DAC_data_A[0];
+                        dma_hw->ch[3].al1_read_addr = (long unsigned int)&DAC_data_A[0];
+                        dma_hw->ch[5].al1_read_addr = (long unsigned int)&DAC_data_B[0];
+                        dma_hw->ch[7].al1_read_addr = (long unsigned int)&DAC_data_B[0];
+                    
+                        // Restart the DMA data channels
+                        hw_set_bits(&dma_hw->ch[1].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+                        hw_set_bits(&dma_hw->ch[3].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+                        hw_set_bits(&dma_hw->ch[5].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+                        hw_set_bits(&dma_hw->ch[7].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+
+                        // Would be much tighter if I could...
+                        // Start all 4 DMA channels simultaneously - this ensures phase sync across all State Machines...
+                        // dma_start_channel_mask(DAC_channel_mask);
+                        break;
+                    case 'p':
+                        hw_clear_bits(&dma_hw->ch[0].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+                        hw_clear_bits(&dma_hw->ch[1].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+                        hw_clear_bits(&dma_hw->ch[2].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+                        hw_clear_bits(&dma_hw->ch[3].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+                        hw_clear_bits(&dma_hw->ch[4].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+                        hw_clear_bits(&dma_hw->ch[5].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+                        hw_clear_bits(&dma_hw->ch[6].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+                        hw_clear_bits(&dma_hw->ch[7].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+
+                        dma_hw->abort = (1 << 0) | (1 << 1);
+                        dma_hw->abort = (1 << 2) | (1 << 3);
+                        dma_hw->abort = (1 << 4) | (1 << 5);
+                        dma_hw->abort = (1 << 6) | (1 << 7);
+
+                        // dma_hw->abort = DAC_channel_mask;
+
+                        DACchannel[SelectedChan].SetPhase(Value);
+
+                        WaveForm_Update(SelectedChan, DACchannel[SelectedChan].Get_Resource(_Funct_),
+                            DACchannel[SelectedChan].Get_Resource(_DutyC_), DACchannel[SelectedChan].Get_Resource(_Phase_));
+
+                        hw_set_bits(&dma_hw->ch[0].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+                        hw_set_bits(&dma_hw->ch[1].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+                        hw_set_bits(&dma_hw->ch[2].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+                        hw_set_bits(&dma_hw->ch[3].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+                        hw_set_bits(&dma_hw->ch[4].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+                        hw_set_bits(&dma_hw->ch[5].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+                        hw_set_bits(&dma_hw->ch[6].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+                        hw_set_bits(&dma_hw->ch[7].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+                        
+                        // Start all 4 DMA channels simultaneously - this ensures phase sync across all State Machines...
+                        dma_start_channel_mask(DAC_channel_mask);
+
+                        break;
+                    default:
+                        printf("\tUnknown command\n");
+                }
+                ChanInfo(DACchannel, SelectedChan);                             // Update the terminal
+                SPI_Nixie_Write(Value);                             // Update the Nixie display
             }
-            if (UpdateReq & 0b100) {                                                // Waveform has changed
-                NixieVal = RotaryEnc[_WaveForm_];
-                WaveForm_Update(WaveForm_Type, NixieVal);
-
-                NixieBuffer[0] = NixieVal % 10 ;                                    // First Nixie ( 1's )
-                NixieVal /= 10 ;                                                    // finished with NixieVal, so ok to trash it. NixieVal=>10's
-                NixieBuffer[1] = NixieVal % 10 ;                                    // Second Nixie ( 10's )
-                NixieVal /= 10 ;                                                    // NixieVal=>100's
-                NixieBuffer[2] = 10 ;                                               // Blank Third Nixie ( 100's )
-            }
-            if (UpdateReq & 0b001) {                                                // Level has changed
-                NixieVal  = RotaryEnc[_Level_];
-                ScaledVal = NixieVal*255/99;                                        // Scale the level. Display: 0->99 - Potentiometer: 0->255
-                printf("Level: %02d%%\n",NixieVal);
-                
-                MCP41010_write(ScaledVal);                                          // Send over SPI to digital potentiometer
-                NixieBuffer[0] = NixieVal % 10 ;                                    // First Nixie ( 1's )
-                NixieVal /= 10 ;                                                    // finished with teNixieValmp, so ok to trash it. NixieVal=>10's
-                NixieBuffer[1] = NixieVal % 10 ;                                    // Second Nixie ( 10's )
-                NixieVal /= 10 ;                                                    // NixieVal=>100's
-                NixieBuffer[2] = 10 ;                                               // Blank Third Nixie ( 100's )
-            }
-            UpdateReq = 0;                                                          // All up to date, so clear the flag
         }
+        free(inString);                        // free buffer
     }
+    return 0;
 }
