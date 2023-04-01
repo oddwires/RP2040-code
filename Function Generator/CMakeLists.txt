@@ -1,8 +1,6 @@
 add_executable(FunctionGenerator)
-pico_generate_pio_header(FunctionGenerator ${CMAKE_CURRENT_LIST_DIR}/rotary_encoder.pio)
 pico_generate_pio_header(FunctionGenerator ${CMAKE_CURRENT_LIST_DIR}/blink.pio)
 pico_generate_pio_header(FunctionGenerator ${CMAKE_CURRENT_LIST_DIR}/FastDAC.pio)
-pico_generate_pio_header(FunctionGenerator ${CMAKE_CURRENT_LIST_DIR}/FastDAC2.pio)
 pico_generate_pio_header(FunctionGenerator ${CMAKE_CURRENT_LIST_DIR}/SlowDAC.pio)
 
 # pull in common dependencies
