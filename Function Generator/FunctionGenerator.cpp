@@ -85,15 +85,34 @@ class DACchannel {
 
 public:
     // Setter functions...
+    void ReInit () {
+        // Re-initialises DMA channels to their initial state.
+        // Note: 1) DMA channels are not restarted, allowing an atomic (simultaneous) restart of both DAC channels later.
+        //       2) Cannot use dma_hw->abort on chained DMA channels, so using disable and re-enable instead.
+        //       3) This needs to be performed across both DAC channels to ensure phase sync is maintained.
+        // Disable all 4 DMA channels associated with this DAC...
+        hw_clear_bits(&dma_hw->ch[data_chan_fast].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+        hw_clear_bits(&dma_hw->ch[data_chan_slow].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+        hw_clear_bits(&dma_hw->ch[ctrl_chan_fast].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+        hw_clear_bits(&dma_hw->ch[ctrl_chan_slow].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);        
+        // Reset the data transfer DMA's to the start of the data Bitmap...
+        dma_channel_set_read_addr(data_chan_fast, &DAC_data[0], false);
+        dma_channel_set_read_addr(data_chan_slow, &DAC_data[0], false);
+        // Re-enable all 4 DMA channels associated with this DAC...
+        hw_set_bits(&dma_hw->ch[data_chan_fast].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+        hw_set_bits(&dma_hw->ch[data_chan_slow].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+        hw_set_bits(&dma_hw->ch[ctrl_chan_fast].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+        hw_set_bits(&dma_hw->ch[ctrl_chan_slow].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+    }
     void SetFunct (int _value) { Funct = _value; }                        // Function    (Sine/Triangl/Square)
-    void SetPhase (int _value) { Phase = _value;                          // Phase shift (0->360 degrees)
-                                 DACclock(Freq); }
     void SetDutyC (int _value) { DutyC = _value; }                        // Duty cycle  (0->100%)
     void SetRange (int _value) { Range = _value;                          // Range       (Hz/KHz)
-                                 DACclock(Freq * Range); }                // Update State MAchine run speed
+                                 DACspeed(Freq * Range); }                // Update State MAchine run speed
     void SetFreq  (int _value) { Freq  = _value;                          // Frequency   (numeric)
-                                 DACclock(Freq * Range); }                // Update State machine run speed    
-    void DACclock (int _frequency) {
+                                 DACspeed(Freq * Range); }                // Update State machine run speed    
+    void SetPhase (int _value) { Phase = _value;                          // Phase shift (0->360 degrees)
+                                 DACspeed(Freq * Range); }
+    void DACspeed (int _frequency) {
         // If DAC_div exceeds 2^16 (65,536), the registers wrap around, and the State Machine clock will be incorrect.
         // A slow version of the DAC State Machine is used for frequencies below 17Hz, allowing the value of DAC_div to
         // be kept within range.
@@ -112,6 +131,7 @@ public:
             pio_sm_set_enabled(pio, StateMachine[Slow], true);                  // Slow State Machine active
         }
     }
+
     void DataCalc () {
     //    int i,h_index, v_offset = BitMapSize/2 - 1;                                                 // Shift sine waves up above X axis
         int i,j, v_offset = 256/2 - 1;                                                                // Shift sine waves up above X axis
@@ -127,7 +147,7 @@ public:
                 DutyC = DutyC % 10;                                                                   // Sine value cycles after 7
                 for (i=0; i<BitMapSize; i++) {
     // Add the phase offset and wrap data beyond buffer end back to the buffer start...
-                    j = ( i + _phase ) % BitMapSize;                                                   // Horizontal index
+                    j = ( i + _phase ) % BitMapSize;                                                  // Horizontal index
                     a = v_offset * sin((float)_2Pi*i / (float)BitMapSize);                            // Fundamental frequency...
                     if (DutyC >= 1) { a += v_offset/3  * sin((float)_2Pi*3*i  / (float)BitMapSize); } // Add  3rd harmonic
                     if (DutyC >= 2) { a += v_offset/5  * sin((float)_2Pi*5*i  / (float)BitMapSize); } // Add  5th harmonic
@@ -144,8 +164,9 @@ public:
             case _Square_: 
                 b = DutyC * BitMapSize / 100;                                                         // Convert % to value
                 for (i=0; i<BitMapSize; i++) {
-                    if (b <= i) { DAC_data[i] = 0;   }                                                // First section low
-                    else        { DAC_data[i] = 255; }                                                // Second section high
+                    j = ( i + _phase ) % BitMapSize;                                                  // Horizontal index
+                    if (b <= i) { DAC_data[j] = 0;   }                                                // First section low
+                    else        { DAC_data[j] = 255; }                                                // Second section high
                 }
                 break;
             case _Triangle_: 
@@ -154,8 +175,9 @@ public:
                 g1 = (BitMapSize - 1) / x1;                                                           // Rising gradient (Max val = BitMapSize -1)
                 g2 = (BitMapSize - 1) / x2;                                                           // Falling gradient (Max val = BitMapSize -1)
                 for (i=0; i<BitMapSize; i++) {
-                    if (i <= x1) { DAC_data[i] = i * g1; }                                            // Rising  section of waveform...
-                    if (i > x1)  { DAC_data[i] = (BitMapSize - 1) - ((i - x1) * g2); }                // Falling section of waveform
+                    j = ( i + _phase ) % BitMapSize;                                                  // Horizontal index
+                    if (i <= x1) { DAC_data[j] = i * g1; }                                            // Rising  section of waveform...
+                    if (i > x1)  { DAC_data[j] = (BitMapSize - 1) - ((i - x1) * g2); }                // Falling section of waveform
                 }
         }
     }
@@ -300,8 +322,6 @@ public:
         }
     return (result);
     }
-
-
 };
 
 void ChanInfo ( DACchannel DACchannel[], int _chanNum) {
@@ -467,8 +487,7 @@ int main() {
     DACchannel DACchannel[2];                                                // Array to hold the two DAC channel objects
 
 // Set up the objects controlling the various State Machines...
-// Note: I may need to move both DMA to DAC channels onto the same PIO to acheive accurate phase sync. But for now,
-//       I have just distributed the load across the two PIO's
+// Note: Both DAC channels need to be on the same PIO to acheive accurate phase sync.
     DACchannel[_A].NewDMAtoDAC_channel(pio1,0);                              // First  DAC channel object in array - resistor network connected to GPIO0->7
     DACchannel[_B].NewDMAtoDAC_channel(pio1,8);                              // Second DAC channel object in array - resistor network connected to GPIO8->15
     blink_forever LED_blinky(pio0);                                          // Onboard LED blinky object
@@ -536,50 +555,26 @@ int main() {
                         DACchannel[SelectedChan].SetDutyC(Value);
                         DACchannel[SelectedChan].DataCalc();
                       break;
-                    case 'h':                                               // Set Hz
+                    case 'h':                                       // Set Hz
                         DACchannel[SelectedChan].SetRange(1);
                         break;
-                    case 'k':                                               // Set KHz
+                    case 'k':                                       // Set KHz
                         DACchannel[SelectedChan].SetRange(1000);
                         break;
                     case 'f':
-                        // Stop the DMA data transfer...
-                        hw_clear_bits(&dma_hw->ch[1].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
-                        hw_clear_bits(&dma_hw->ch[3].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
-                        hw_clear_bits(&dma_hw->ch[5].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
-                        hw_clear_bits(&dma_hw->ch[7].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
-
-                        DACchannel[SelectedChan].SetFreq(Value);
-                    
-                        // Restart the DMA data channels...
-                        hw_set_bits(&dma_hw->ch[1].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
-                        hw_set_bits(&dma_hw->ch[3].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
-                        hw_set_bits(&dma_hw->ch[5].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
-                        hw_set_bits(&dma_hw->ch[7].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
-
-                        // Would be much tighter if I could...
-                        // Start all 4 DMA channels simultaneously - this ensures phase sync across all State Machines...
-                        // dma_start_channel_mask(DAC_channel_mask);
+                        DACchannel[_A].ReInit();                    // Stop DAC channel A and re-initialise DMA to start of Bitmap data
+                        DACchannel[_B].ReInit();                    // Stop DAC channel B and re-initialise DMA to start of Bitmap data
+                        DACchannel[SelectedChan].SetFreq(Value);    // Update DAC speed.
+                        dma_start_channel_mask(DAC_channel_mask);   // Atomically Restart all 4 DMA channels...
+                                                                    // ...this ensures phase sync between both DAC channels
                         break;
-
                     case 'p':
-                        // Stop the DMA data transfer...
-                        hw_clear_bits(&dma_hw->ch[1].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
-                        hw_clear_bits(&dma_hw->ch[3].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
-                        hw_clear_bits(&dma_hw->ch[5].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
-                        hw_clear_bits(&dma_hw->ch[7].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
-
-                        DACchannel[SelectedChan].SetPhase(Value);
-                        DACchannel[SelectedChan].DataCalc();
-
-                        // Restart the DMA data channels...
-                       hw_set_bits(&dma_hw->ch[1].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
-                       hw_set_bits(&dma_hw->ch[3].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
-                       hw_set_bits(&dma_hw->ch[5].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
-                       hw_set_bits(&dma_hw->ch[7].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
-                        
-                        // Start all 4 DMA channels simultaneously - this ensures phase sync across all State Machines...
-                       // dma_start_channel_mask(DAC_channel_mask);
+                        DACchannel[_A].ReInit();                    // Stop DAC channel A and re-initialise DMA to start of Bitmap data
+                        DACchannel[_B].ReInit();                    // Stop DAC channel B and re-initialise DMA to start of Bitmap data
+                        DACchannel[SelectedChan].SetPhase(Value);   // Update DAC phase.
+                        DACchannel[SelectedChan].DataCalc();        // Update Bitmap data to include new DAC phase
+                        dma_start_channel_mask(DAC_channel_mask);   // Atomically Restart all 4 DMA channels...
+                                                                    // ...this ensures phase sync between both DAC channels
                         break;
                     default:
                         printf("\tUnknown command\n");
