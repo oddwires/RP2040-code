@@ -56,25 +56,31 @@
 
 unsigned short DAC_channel_mask = 0 ;                                       // Binary mask to simultaneously start all DMA channels
 const uint32_t transfer_count = BitMapSize ;                                // Number of DMA transfers per event
-int Value, tmp, WaveForm_Type;
+int WaveForm_Type;
 const uint startLineLength = 8;                                             // the linebuffer will automatically grow for longer lines
 const char eof = 255;                                                       // EOF in stdio.h -is -1, but getchar returns int 255 to avoid blocking
-const char *HelpText = 
+int ParmCnt = 0, Parm[4] ;                                                  // Storage for 4 command line parameters
+int SelectedChan, c, i = 0, dirn = 1 ;
+const char * HelpText = 
 "\tUsage...\n"
-"\t  ?          - Usage\n"
-"\t  S          - Status\n"
-"\t  I          - System info\n"
-"\t  <A/B>fnnn  - Frequency                  ( 0->999 )\n"
-"\t  <A/B>h     - Frequency multiplier  Hz\n"
-"\t  <A/B>k     - Frequency multiplier KHz\n"
-"\t  <A/B>snnn  - Sine wave + harmonic       ( 0->9 )\n"
-"\t  <A/B>qnnn  - Square wave + duty cycle   ( 0->100%% )\n"
-"\t  <A/B>tnnn  - Triangle wave + duty cycle ( 0->100%% )\n"
-"\t  p<A/B>nnn  - Phase                      ( 0->360 degrees )\n"
-"\t  <A/B>      - DAC channel A or B\n"
-"\t        nnn  - Three digit numeric value\n";
+"\t  ?            - Usage\n"
+"\t  S            - Status\n"
+"\t  I            - System info\n"
+"\t  <A/B/C>fnnn  - Frequency                  ( 0->999 )\n"
+"\t  <A/B/C>h     - Frequency multiplier  Hz\n"
+"\t  <A/B/C>k     - Frequency multiplier KHz\n"
+"\t  <A/B/C>snnn  - Sine wave + harmonic       ( 0->9 )\n"
+"\t  <A/B/C>qnnn  - Square wave + duty cycle   ( 0->100%% )\n"
+"\t  <A/B/C>tnnn  - Triangle wave + duty cycle ( 0->100%% )\n"
+"\t  <A/B/C>pnnn  - Phase                      ( 0->360 degrees )\n"
+"\t  <A/B/C>w     - Sweep frequency\n"
+"\t  <A/B/C>      - DAC channel A,B or Both\n"
+"\t        nnn    - Three digit numeric value\n";
 
 class DACchannel {
+
+//   static void pio_sm_set_wrap ( PIO pio, uint sm, uint wrap_target, uint wrap )	
+
     unsigned short DAC_data[BitMapSize] __attribute__ ((aligned(2048))) ; // Align DAC data (2048d = 0800h)
     uint StateMachine[2] ;                                                // Fast and slow State Machines
     uint Funct, Phase, Freq, Range, DutyC;
@@ -371,6 +377,7 @@ void SysInfo ( DACchannel DACchannel[], blink_forever LED_blinky) {
     a = DACchannel[_A].Get_Resource(_BM_start_);
     b = DACchannel[_B].Get_Resource(_BM_start_);
     printf("| BM start: %x          | BM start: %x          |\n",a,b);
+    printf("| Divider:     %05x          | Divider:     %05x          |\n",0,0);
     printf("|--------------|--------------|--------------|--------------|\n");
     printf("| Fast DAC     | Slow DAC     | Fast DAC     |  Slow DAC    |\n");
     printf("|--------------|--------------|--------------|--------------|\n");
@@ -443,7 +450,7 @@ static char * getLine(bool fullDuplex = false, char lineBreak = '\n') {
         if(c == eof || c == lineBreak) {
             break;     // non blocking exit
         }
-        if (fullDuplex) {
+         if (fullDuplex) {
             putchar(c); // echo for fullDuplex terminals
         }
         if(--len == 0) { // allow larger buffer
@@ -492,13 +499,13 @@ int main() {
     DACchannel[_B].NewDMAtoDAC_channel(pio1,8);                              // Second DAC channel object in array - resistor network connected to GPIO8->15
     blink_forever LED_blinky(pio0);                                          // Onboard LED blinky object
 
-// Set LED to rapid flash indicates waiting for USB connection...
+// Set LED to slow flash indicates waiting for USB connection...
     LED_blinky.Set_Frequency(1);                                             // 1Hz
 
 // Wait for USB connection...
     while (!stdio_usb_connected()) { sleep_ms(100); }
 
-// USB connection established, set LED to regular flash...
+// USB connection established, set LED to rapid flash...
     LED_blinky.Set_Frequency(10);                                             // 10Hz
 
     SysInfo(DACchannel, LED_blinky);                                         // Show configuration (optional)
@@ -519,71 +526,127 @@ int main() {
 
     while(1) {
         char *inString = getLine(true, '\r') ;
-        tmp = strlen(inString) ;
-        int SelectedChan ;
+        ParmCnt = 0, Parm[0]=0,  Parm[1]=0,  Parm[2]=0,  Parm[3]=0; 
 
-        if ((tmp<=0) or (tmp>5)) {
-            printf("  Syntax error\n");
-        } else {
-            if      ( inString[0] == '?' ) { printf(HelpText); }                     // Help text
-            else if ( inString[0] == 'S' ) { ChanInfo(DACchannel, _A);                            // Status info
-                                             ChanInfo(DACchannel, _B);        }
-            else if ( inString[0] == 'I' ) { SysInfo(DACchannel, LED_blinky); }
-            else {
-                // Select DAC channel A or B...
-                inString[0] == 'A' ? SelectedChan = 0 : SelectedChan = 1;
-                // Find numeric value, based on number of parameters passed. This ensures leading zeros are be ignored...
-                if ( tmp == 3 ) { Value =   inString[2] - '0'; }                                                      // 1 digit
-                if ( tmp == 4 ) { Value = ((inString[2]-'0') * 10) +   (inString[3]-'0'); }                           // 2 digits
-                if ( tmp == 5 ) { Value = ((inString[2]-'0') * 100) + ((inString[3]-'0') * 10) + (inString[4]-'0'); } // 3 digits
+        // Perform single character instructions...
+        if (inString[0] == '?') { printf(HelpText);                }            // Help text
+        if (inString[0] == 'S') { ChanInfo(DACchannel, _A);                     // Status info
+                                  ChanInfo(DACchannel, _B);        }
+        if (inString[0] == 'I') { SysInfo(DACchannel, LED_blinky); }
 
-                switch ( inString[1] ) {
-                    case 's':                                               // Sine wave
-                        DACchannel[SelectedChan].SetFunct(_Sine_);
-                        DACchannel[SelectedChan].SetDutyC(Value);
-                        DACchannel[SelectedChan].DataCalc();
-                        break;
-                    case 't':                                               // Triangle wave
-                        if ( Value > 100 ) { Value = 100; }                 // Hard limit @ 100%
-                        DACchannel[SelectedChan].SetFunct(_Triangle_);
-                        DACchannel[SelectedChan].SetDutyC(Value);
-                        DACchannel[SelectedChan].DataCalc();
-                        break;
-                    case 'q':
-                        if ( Value > 100 ) { Value = 100; }                 // Hard limit @ 100%
-                        DACchannel[SelectedChan].SetFunct(_Square_);
-                        DACchannel[SelectedChan].SetDutyC(Value);
-                        DACchannel[SelectedChan].DataCalc();
-                      break;
-                    case 'h':                                       // Set Hz
-                        DACchannel[SelectedChan].SetRange(1);
-                        break;
-                    case 'k':                                       // Set KHz
-                        DACchannel[SelectedChan].SetRange(1000);
-                        break;
-                    case 'f':
-                        DACchannel[_A].ReInit();                    // Stop DAC channel A and re-initialise DMA to start of Bitmap data
-                        DACchannel[_B].ReInit();                    // Stop DAC channel B and re-initialise DMA to start of Bitmap data
-                        DACchannel[SelectedChan].SetFreq(Value);    // Update DAC speed.
-                        dma_start_channel_mask(DAC_channel_mask);   // Atomically Restart all 4 DMA channels...
-                                                                    // ...this ensures phase sync between both DAC channels
-                        break;
-                    case 'p':
-                        DACchannel[_A].ReInit();                    // Stop DAC channel A and re-initialise DMA to start of Bitmap data
-                        DACchannel[_B].ReInit();                    // Stop DAC channel B and re-initialise DMA to start of Bitmap data
-                        DACchannel[SelectedChan].SetPhase(Value);   // Update DAC phase.
-                        DACchannel[SelectedChan].DataCalc();        // Update Bitmap data to include new DAC phase
-                        dma_start_channel_mask(DAC_channel_mask);   // Atomically Restart all 4 DMA channels...
-                                                                    // ...this ensures phase sync between both DAC channels
-                        break;
-                    default:
-                        printf("\tUnknown command\n");
-                }
-                ChanInfo(DACchannel, SelectedChan);                             // Update the terminal
-                SPI_Nixie_Write(Value);                                         // Update Nixie display
-            }
+        // Select DAC channel A or B...
+        if (inString[0] == 'A') { SelectedChan = 0b0001;           }            // Channel A
+        if (inString[0] == 'B') { SelectedChan = 0b0010;           }            // Channel B
+        if (inString[0] == 'C') { SelectedChan = 0b0011;           }            // Channel A & B
+        // Parse command line to extract numeric parameters. Leading zeros are ignored...
+        i = 1 ;                                                                 // Skip chars 0 & 1
+        while (i++ < strlen(inString)-1 ) {                                     // Start at char 2
+            if ( inString[i] == ',' ) { ParmCnt++ ; }                           // Next parameter
+            else                      { Parm[ParmCnt] *= 10;                    // Next digit. Bump the existing decimal digits
+                                        Parm[ParmCnt] += inString[i] - '0'; }   // Convert character to integer and add
         }
-        free(inString);                        // free buffer
+        // Perform the selected command...
+        switch ( inString[1] ) {
+            case 'w':                                           // Frequency sweep
+                i = Parm[0];
+                for (;;) {
+                    DACchannel[_A].ReInit();                    // Stop DAC channel A and re-initialise DMA to start of Bitmap data
+                    DACchannel[_B].ReInit();                    // Stop DAC channel B and re-initialise DMA to start of Bitmap data
+                    if (SelectedChan & 0b01) {
+                        DACchannel[_A].SetFreq(i); 
+                        ChanInfo(DACchannel, _A);               // Update the terminal
+                    }
+                    if (SelectedChan & 0b10) {
+                        DACchannel[_B].SetFreq(i);
+                        ChanInfo(DACchannel, _B);               // Update the terminal
+                        }
+                    dma_start_channel_mask(DAC_channel_mask);   // Atomically Restart all 4 DMA channels...
+                    SPI_Nixie_Write(i);                         // Update Nixie display
+                    if (i==Parm[0]) { dirn = 1;
+                                      sleep_ms(Parm[3]); }      // Count up from zero, pause at end
+                    if (i>=Parm[1]) { dirn =-1; 
+                                      sleep_ms(Parm[3]); }      // Count down from 100, pause at start
+                    i = i + dirn;
+                    c = getchar_timeout_us (0);                 // Non-blocking char input
+                    if ((c>=32) & (c<=126)) { break; }          // exit on keypress
+                    sleep_ms(Parm[2]);                          // Speed of scan
+                }
+                break;
+            case 's':                                           // Sine wave
+                if (SelectedChan & 0b01) {
+                    DACchannel[_A].SetFunct(_Sine_);
+                    DACchannel[_A].SetDutyC(Parm[0]);
+                    DACchannel[_A].DataCalc();
+                }
+                if (SelectedChan & 0b10) {
+                    DACchannel[_B].SetFunct(_Sine_);
+                    DACchannel[_B].SetDutyC(Parm[0]);
+                    DACchannel[_B].DataCalc();
+                }
+                break;
+            case 't':                                           // Triangle wave
+                if ( Parm[0] > 100 ) { Parm[0] = 100; }         // Hard limit @ 100%
+                if (SelectedChan & 0b01) {
+                    DACchannel[_A].SetFunct(_Triangle_);
+                    DACchannel[_A].SetDutyC(Parm[0]);
+                    DACchannel[_A].DataCalc();
+                }
+                if (SelectedChan & 0b10) {
+                    DACchannel[_B].SetFunct(_Triangle_);
+                    DACchannel[_B].SetDutyC(Parm[0]);
+                    DACchannel[_B].DataCalc();
+                }
+                break;
+            case 'q':
+                if ( Parm[0] > 100 ) { Parm[0] = 100; }         // Hard limit @ 100%
+                if (SelectedChan & 0b01) {
+                    DACchannel[_A].SetFunct(_Square_);
+                    DACchannel[_A].SetDutyC(Parm[0]);
+                    DACchannel[_A].DataCalc();
+                }
+                if (SelectedChan & 0b10) {
+                    DACchannel[_B].SetFunct(_Square_);
+                    DACchannel[_B].SetDutyC(Parm[0]);
+                    DACchannel[_B].DataCalc();
+                }
+                break;
+            case 'h':                                           // Set Hz
+                if (SelectedChan & 0b01) { DACchannel[_A].SetRange(1); }
+                if (SelectedChan & 0b10) { DACchannel[_B].SetRange(1); }
+                break;
+            case 'k':                                           // Set KHz
+                if (SelectedChan & 0b01) { DACchannel[_A].SetRange(1000); }
+                if (SelectedChan & 0b10) { DACchannel[_B].SetRange(1000); }
+                break;
+            case 'f':
+                DACchannel[_A].ReInit();                        // Stop DAC channel A and re-initialise DMA to start of Bitmap data
+                DACchannel[_B].ReInit();                        // Stop DAC channel B and re-initialise DMA to start of Bitmap data
+                // TBD: this may throw any existing phase setting out.
+                // Recalc both channels ensures phase settings are preserved.
+                if (SelectedChan & 0b01) { DACchannel[_A].SetFreq(Parm[0]); }
+                if (SelectedChan & 0b10) { DACchannel[_B].SetFreq(Parm[0]); }
+                dma_start_channel_mask(DAC_channel_mask);       // Atomically Restart all 4 DMA channels
+                break;
+            case 'p':
+                DACchannel[_A].ReInit();                        // Stop DAC channel A and re-initialise DMA to start of Bitmap data
+                DACchannel[_B].ReInit();                        // Stop DAC channel B and re-initialise DMA to start of Bitmap data
+                if (SelectedChan & 0b01) {
+                    DACchannel[_A].SetPhase(Parm[0]);           // Update DAC phase.
+                    DACchannel[_A].DataCalc();                  // Update Bitmap data to include new DAC phase
+                }
+                if (SelectedChan & 0b10) {
+                    DACchannel[_B].SetPhase(Parm[0]);           // Update DAC phase.
+                    DACchannel[_B].DataCalc();                  // Update Bitmap data to include new DAC phase
+                }
+                dma_start_channel_mask(DAC_channel_mask);       // Atomically Restart all 4 DMA channels
+                break;
+            default:
+                printf("\tUnknown command\n");
+        }
+        if (SelectedChan & 0b01) { ChanInfo(DACchannel, _A); }   // Update the terminal
+        if (SelectedChan & 0b10) { ChanInfo(DACchannel, _B); }
+        SPI_Nixie_Write(Parm[0]);                                // Update Nixie display
+        free(inString);                                          // free buffer
     }
     return 0;
 }
