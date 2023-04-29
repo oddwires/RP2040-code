@@ -1,7 +1,6 @@
 add_executable(FunctionGenerator)
 pico_generate_pio_header(FunctionGenerator ${CMAKE_CURRENT_LIST_DIR}/blink.pio)
-pico_generate_pio_header(FunctionGenerator ${CMAKE_CURRENT_LIST_DIR}/FastDAC.pio)
-pico_generate_pio_header(FunctionGenerator ${CMAKE_CURRENT_LIST_DIR}/SlowDAC.pio)
+pico_generate_pio_header(FunctionGenerator ${CMAKE_CURRENT_LIST_DIR}/DAC.pio)
 
 # pull in common dependencies
 target_sources(FunctionGenerator PRIVATE FunctionGenerator.cpp)

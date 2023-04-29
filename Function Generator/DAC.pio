@@ -1,16 +1,22 @@
-.program pio_SlowDAC
+.program pio_DAC
 ; Repeatedly get one word of data from the TX FIFO, stalling when the FIFO is
 ; empty. Write the data to the OUT pin group.
 .wrap_target
 ; Get data bits from DMA via Output Shift Register (OSR) to PINS.
         out     PINS, 8                 ; 1 machine cycle
+;                             ============================
+;.pseudo_wrap                 Fast loop = 1 machine cycle      ; Frequencies >= 34Hz are configured to wrap at this point
+;                             ============================
+                                            
+
         set     x,1                     ; 1 machine cycle
 loop01:                                 ;                       Loop will run 2 times
         nop                     [29]    ; 30 machine cycles
         jmp     x-- loop01              ;  1 machine cycle      Bump x and Jump        
-;                                        ===================
-;                                         64 machine cycles
-;                                        ===================
+;                             ==============================
+;                             Slow loop = 64 machine cycles
+;                             ==============================
+                                                               ; Frequencies < 34Hz are configured to wrap at this point
 .wrap
 
 % c-sdk {
@@ -19,10 +25,10 @@ loop01:                                 ;                       Loop will run 2 
 // Note: 1) No divider is specified for the SM, so it will default to the same speed as the CPU.
 //       2) Hard coded to use 8 bit DAC hardware
 
-void pio_SlowDAC_program_init(PIO pio, uint sm, uint offset, uint start_pin) {
+void pio_DAC_program_init(PIO pio, uint sm, uint offset, uint start_pin) {
     for (uint i=start_pin; i<(start_pin+8); i++) { pio_gpio_init(pio, i); }  // Allow PIO to control GPIO pins as outputs
     pio_sm_set_consecutive_pindirs(pio, sm, start_pin, 8, true);             // Set the pin direction to output (in PIO)
-    pio_sm_config c = pio_SlowDAC_program_get_default_config(offset);        // Define PIO Configuration structure
+    pio_sm_config c = pio_DAC_program_get_default_config(offset);            // Define PIO Configuration structure
     sm_config_set_out_pins(&c, start_pin, 8);                                // Configure pins to be targeted by the OUT (and MOV) commands
     sm_config_set_out_shift(&c, true, true, 8);                              // Shift right, Autopull enabled, 6/8 bits
     pio_sm_init(pio, sm, offset, &c);                                        // Load configuration and jump to start of the program

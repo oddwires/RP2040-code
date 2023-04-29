@@ -7,8 +7,7 @@
 #include "hardware/clocks.h"
 #include "hardware/dma.h"
 #include "blink.pio.h"
-#include "FastDAC.pio.h"
-#include "SlowDAC.pio.h"
+#include "DAC.pio.h"
 
 /////////////////////////////
 // Define GPIO connections...
@@ -28,39 +27,37 @@
 
 #define _A               0                           // DAC channel alias
 #define _B               1
+#define _Up              1
+#define _Down           -1
 #define LED             20                          // GPIO connected to LED
 #define BitMapSize     256                          // Match X to Y resolution
-//#define BitMapSize      360                       // won't work - DMA needs to operate as a power of 2
-#define Slow             0
-#define Fast             1
-#define _Sine_           0                           // Permited values for variable WaveForm_Type
+#define _Sine_           0                          // Permited values for variable WaveForm_Type
 #define _Square_         1
 #define _Triangle_       2
 #define _GPIO_           0
 #define _PIO_            1
 #define _BM_start_       2
-#define _SM_fast_        3
-#define _SM_slow_        4
-#define _SM_code_fast_   5
-#define _SM_code_slow_   6
-#define _SM_             7
-#define _DMA_ctrl_fast_  8
-#define _DMA_ctrl_slow_  9
-#define _DMA_data_fast_ 10
-#define _DMA_data_slow_ 11
-#define _Funct_         12
-#define _Phase_         13
-#define _Freq_          14
-#define _Range_         15
-#define _DutyC_         16
+#define _SM_             3
+#define _SM_codeBot_     4
+#define _SM_codeTop_     5
+#define _DMA_ctrl_       6
+#define _DMA_data_       7
+#define _Funct_          8
+#define _Phase_          9
+#define _Freq_          10
+#define _Range_         11
+#define _DutyC_         12
+#define _DAC_div_       13
+#define eof            255                          // EOF in stdio.h -is -1, but getchar returns int 255 to avoid blocking
+//#define BitMapSize      360                       // won't work - DMA needs to operate as a power of 2
 
-unsigned short DAC_channel_mask = 0 ;                                       // Binary mask to simultaneously start all DMA channels
-const uint32_t transfer_count = BitMapSize ;                                // Number of DMA transfers per event
+unsigned short DAC_channel_mask = 0 ;               // Binary mask to simultaneously start all DMA channels
+const uint32_t transfer_count = BitMapSize ;        // Number of DMA transfers per event
 int WaveForm_Type;
-const uint startLineLength = 8;                                             // the linebuffer will automatically grow for longer lines
-const char eof = 255;                                                       // EOF in stdio.h -is -1, but getchar returns int 255 to avoid blocking
-int ParmCnt = 0, Parm[4] ;                                                  // Storage for 4 command line parameters
+const uint startLineLength = 8;                     // the linebuffer will automatically grow for longer lines
+int ParmCnt = 0, Parm[4] ;                          // Storage for 4 command line parameters
 int SelectedChan, c, i = 0, dirn = 1 ;
+char LastCmd[30];                                   // TBD - check required size
 const char * HelpText = 
 "\tUsage...\n"
 "\t  ?            - Usage\n"
@@ -74,67 +71,71 @@ const char * HelpText =
 "\t  <A/B/C>tnnn  - Triangle wave + duty cycle ( 0->100%% )\n"
 "\t  <A/B/C>pnnn  - Phase                      ( 0->360 degrees )\n"
 "\t  <A/B/C>w     - Sweep frequency\n"
+"\t  <A/B/C>x     - Frequency + 1\n"
+"\t  <A/B/C>y     - Frequency - 1\n"
 "\t  <A/B/C>      - DAC channel A,B or Both\n"
 "\t        nnn    - Three digit numeric value\n";
 
 class DACchannel {
-
-//   static void pio_sm_set_wrap ( PIO pio, uint sm, uint wrap_target, uint wrap )	
-
     unsigned short DAC_data[BitMapSize] __attribute__ ((aligned(2048))) ; // Align DAC data (2048d = 0800h)
-    uint StateMachine[2] ;                                                // Fast and slow State Machines
+    uint StateMachine ;
     uint Funct, Phase, Freq, Range, DutyC;
-    uint GPIO, _pioNum, SM_fast, SM_slow, SM_code_fast ;                  // Variabes used by the getter function...
-    uint SM_code_slow, ctrl_chan_fast, ctrl_chan_slow ;
-    uint data_chan_fast, data_chan_slow ;
+    uint GPIO, SM_WrapBot, SM_WrapTop ;                                   // Variabes used by the getter function...
+    uint ctrl_chan, data_chan ;
     PIO pio;                                                              // Class wide var to share value with setter function
+    float DAC_div ;
 
 public:
-    // Setter functions...
+// Setter functions...
     void ReInit () {
-        // Re-initialises DMA channels to their initial state.
-        // Note: 1) DMA channels are not restarted, allowing an atomic (simultaneous) restart of both DAC channels later.
-        //       2) Cannot use dma_hw->abort on chained DMA channels, so using disable and re-enable instead.
-        //       3) This needs to be performed across both DAC channels to ensure phase sync is maintained.
-        // Disable all 4 DMA channels associated with this DAC...
-        hw_clear_bits(&dma_hw->ch[data_chan_fast].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
-        hw_clear_bits(&dma_hw->ch[data_chan_slow].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
-        hw_clear_bits(&dma_hw->ch[ctrl_chan_fast].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
-        hw_clear_bits(&dma_hw->ch[ctrl_chan_slow].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);        
-        // Reset the data transfer DMA's to the start of the data Bitmap...
-        dma_channel_set_read_addr(data_chan_fast, &DAC_data[0], false);
-        dma_channel_set_read_addr(data_chan_slow, &DAC_data[0], false);
-        // Re-enable all 4 DMA channels associated with this DAC...
-        hw_set_bits(&dma_hw->ch[data_chan_fast].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
-        hw_set_bits(&dma_hw->ch[data_chan_slow].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
-        hw_set_bits(&dma_hw->ch[ctrl_chan_fast].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
-        hw_set_bits(&dma_hw->ch[ctrl_chan_slow].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+    // Re-initialises DMA channels to their initial state.
+    // Note: 1) DMA channels are not restarted, allowing an atomic (simultaneous) restart of both DAC channels later.
+    //       2) Cannot use dma_hw->abort on chained DMA channels, so using disable and re-enable instead.
+    //       3) This needs to be performed across both DAC channels to ensure phase sync is maintained.
+    // Disable both DMA channels associated with this DAC...
+        hw_clear_bits(&dma_hw->ch[data_chan].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+        hw_clear_bits(&dma_hw->ch[ctrl_chan].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);        
+    // Reset the data transfer DMA's to the start of the data Bitmap...
+        dma_channel_set_read_addr(data_chan, &DAC_data[0], false);
+    // Re-enable both DMA channels associated with this DAC...
+        hw_set_bits(&dma_hw->ch[data_chan].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+        hw_set_bits(&dma_hw->ch[ctrl_chan].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
     }
-    void SetFunct (int _value) { Funct = _value; }                        // Function    (Sine/Triangl/Square)
-    void SetDutyC (int _value) { DutyC = _value; }                        // Duty cycle  (0->100%)
-    void SetRange (int _value) { Range = _value;                          // Range       (Hz/KHz)
-                                 DACspeed(Freq * Range); }                // Update State MAchine run speed
-    void SetFreq  (int _value) { Freq  = _value;                          // Frequency   (numeric)
-                                 DACspeed(Freq * Range); }                // Update State machine run speed    
-    void SetPhase (int _value) { Phase = _value;                          // Phase shift (0->360 degrees)
-                                 DACspeed(Freq * Range); }
+
+    void SetFunct (int _value) { Funct = _value ; }                       // Function    (Sine/Triangl/Square)
+    void SetDutyC (int _value) { DutyC = _value ; }                       // Duty cycle  (0->100%)
+    void SetRange (int _value) { Range = _value ;                         // Range       (Hz/KHz)
+                                 DACspeed(Freq * Range) ; }               // Update State Machine run speed
+    void SetFreq  (int _value) { Freq  = _value ;                         // Frequency   (numeric)
+                                 DACspeed(Freq * Range) ; }               // Update State machine run speed    
+    void SetPhase (int _value) { Phase = _value ;                         // Phase shift (0->360 degrees)
+                                 DACspeed(Freq * Range) ; }
+    void BumpFreq (int _value) { if ((_value == _Up) && (Freq < 999)) { Freq += 1 ; }    // Endstop
+                                 if ((_value == _Down) && (Freq > 0)) { Freq -= 1 ; }    // Endstop
+                                 DACspeed(Freq * Range) ; }
     void DACspeed (int _frequency) {
         // If DAC_div exceeds 2^16 (65,536), the registers wrap around, and the State Machine clock will be incorrect.
         // A slow version of the DAC State Machine is used for frequencies below 17Hz, allowing the value of DAC_div to
         // be kept within range.
         float DAC_freq = _frequency * BitMapSize;                               // Target frequency...
-        float DAC_div = 2 * (float)clock_get_hz(clk_sys) / DAC_freq;            // ...calculate the PIO clock divider required for the given Target frequency
+        DAC_div = 2 * (float)clock_get_hz(clk_sys) / DAC_freq;                  // ...calculate the PIO clock divider required for the given Target frequency
         float Fout = 2 * (float)clock_get_hz(clk_sys) / (BitMapSize * DAC_div); // Actual output frequency
          if (_frequency >= 34) {                                                // Fast DAC ( Frequency range from 34Hz to 999Khz )
-            pio_sm_set_clkdiv(pio, StateMachine[Fast], DAC_div);                // Set the State Machine clock speed
-            pio_sm_set_enabled(pio, StateMachine[Fast], true);                  // Fast State Machine active
-            pio_sm_set_enabled(pio, StateMachine[Slow], false);                 // Slow State Machine inactive
-        } else {                                                                // Slow DAC ( 1Hz=>16Hz )
+            SM_WrapTop = SM_WrapBot ;                                           // SM program memory = 1 op-code
+            pio_sm_set_wrap (pio, StateMachine, SM_WrapBot, SM_WrapTop) ;       // Fast loop (1 clock cycle)
+            // If the previous frequency was < 33Hz, we will have just shrunk the assembler from 4 op-codes down to 1.
+            // This leaves the State Machine PC pointing outside of the new WRAP statement, which crashes the SM.
+            // To avoid this, we need to also reset the State Machine program counter...
+            pio->sm[StateMachine].instr = SM_WrapBot ;                          // Reset State Machine PC to start of code
+            pio_sm_set_clkdiv(pio, StateMachine, DAC_div);                      // Set the State Machine clock 
+        } else {                                                                // Slow DAC ( 1Hz=>33Hz )
             DAC_div = DAC_div / 64;                                             // Adjust DAC_div to keep within useable range
             DAC_freq = DAC_freq * 64;
-            pio_sm_set_clkdiv(pio, StateMachine[Slow], DAC_div);                // Set the State Machine clock speed
-            pio_sm_set_enabled(pio, StateMachine[Fast], false);                 // Fast State Machine inactive
-            pio_sm_set_enabled(pio, StateMachine[Slow], true);                  // Slow State Machine active
+            SM_WrapTop = SM_WrapBot + 3 ;                                       // SM program memory = 4 op-codes
+            pio_sm_set_wrap (pio, StateMachine, SM_WrapBot, SM_WrapTop) ;       // slow loop (64 clock cycles)
+            // If the previous frequency was >= 34Hz, we will have just expanded the assembler code from 1 op-code up to 4.
+            // The State Machine PC will still be pointing to an op-code within the new WRAP statement, so will not crash.
+            pio_sm_set_clkdiv(pio, StateMachine, DAC_div);                      // Set the State Machine clock speed
         }
     }
 
@@ -191,70 +192,47 @@ public:
     int Get_Resource (int _index) {
         int result;
         switch (_index) {
-            case _GPIO_:          result = GPIO;              break;
-            case _PIO_:           result = _pioNum;           break;
-            case _BM_start_:      result = (int)&DAC_data[0]; break;
-            case _SM_fast_:       result = SM_fast;           break;
-            case _SM_slow_:       result = SM_slow;           break;
-            case _SM_code_fast_ : result = SM_code_fast;      break;
-            case _SM_code_slow_ : result = SM_code_slow;      break;
-            case _DMA_ctrl_fast_: result = ctrl_chan_fast;    break;
-            case _DMA_ctrl_slow_: result = ctrl_chan_slow;    break;
-            case _DMA_data_fast_: result = data_chan_fast;    break;
-            case _DMA_data_slow_: result = data_chan_slow;    break;
-            case _Funct_:         result = Funct;             break;
-            case _Phase_:         result = Phase;             break;
-            case _Freq_:          result = Freq;              break;
-            case _Range_:         result = Range;             break;
-            case _DutyC_:         result = DutyC;             break;
+            case _GPIO_:          result = GPIO;                break;
+            case _PIO_:           result = pio_get_index(pio);  break;
+            case _BM_start_:      result = (int)&DAC_data[0];   break;
+            case _SM_:            result = StateMachine;        break;
+            case _SM_codeBot_:    result = SM_WrapBot;          break;
+            case _SM_codeTop_:    result = SM_WrapTop;          break;
+            case _DMA_ctrl_:      result = ctrl_chan;           break;
+            case _DMA_data_:      result = data_chan;           break;
+            case _Funct_:         result = Funct;               break;
+            case _Phase_:         result = Phase;               break;
+            case _Freq_:          result = Freq;                break;
+            case _Range_:         result = Range;               break;
+            case _DutyC_:         result = DutyC;               break;
+            case _DAC_div_:       result = DAC_div;             break;
         }
     return (result);
     }
 
 public:
-    // Constructor
-    //    Parameters...
+    // Each DAC channel consists of...
+    //    DMA => FIFO => State Machine => GPIO pins => R2R module
+    // Note: The PIO clock dividers are 16-bit integer, 8-bit fractional, with first-order delta-sigma for the fractional divider.
+    //       This means the clock divisor can vary between 1 and 65536, in increments of 1/256.
+    //       If DAC_div exceeds 2^16 (65,536), the registers will wrap around, and the State Machine clock will be incorrect.
+    //       For frequencies below 34Hz, an additional 63 op-code delay is inserted into the State Machine assembler code. This slows
+    //       down the State Machine operation by a factor of 64, keeping the value of DAC_div within range.
+    // Parameters...
     //       _pio = the required PIO channel
     //       _GPIO = the port connecting to the MSB of the R-2-R resistor network.
-    // The PIO clock dividers are 16-bit integer, 8-bit fractional, with first-order delta-sigma for the fractional divider.
-    // The clock divisor can vary between 1 and 65536, in increments of 1/256.
-    // If DAC_div exceeds 2^16 (65,536), the registers wrap around, and the State Machine clock will be incorrect.
-    // A slow version of the DAC State Machine is used for frequencies below 17Hz, allowing the value of DAC_div to
-    // be kept within range.
-        void NewDMAtoDAC_channel(PIO _pio, uint _GPIO) {
-            pio = _pio, GPIO = _GPIO;                                               // copy parameters to class vars
-            _pioNum = pio_get_index(_pio);
-            StateMachine[Fast] = Single_DMA_FIFO_SM_GPIO_DAC(_pio,Fast,_GPIO);      // Create the Fast DAC channel (frequencies: 17Hz to 999KHz)
-            StateMachine[Slow] = Single_DMA_FIFO_SM_GPIO_DAC(_pio,Slow,_GPIO);      // Create the Slow DAC channel (frequencies: 0Hz to 16Hz)
-        };
-
-public:
-    int Single_DMA_FIFO_SM_GPIO_DAC(PIO _pio, int _speed, uint _startpin) {
-    // Create a DMA channel and its associated State Machine.
-    // DMA => FIFO => State Machine => GPIO pins => DAC
-        uint _pioNum = pio_get_index(_pio);                                     // Get user friendly index number.
+    // Constructor
+    int DAC_chan(PIO _pio, uint _GPIO) {
+        pio = _pio, GPIO = _GPIO;                                               // copy parameters to class vars
         int _offset;
-        uint _StateMachine = pio_claim_unused_sm(_pio, true);                    // Find a free state machine on the specified PIO - error if there are none.
-        uint ctrl_chan = dma_claim_unused_channel(true);                        // Find 2 x free DMA channels for the DAC (12 available)
-        uint data_chan = dma_claim_unused_channel(true);
+        StateMachine = pio_claim_unused_sm(_pio, true);                         // Find a free state machine on the specified PIO - error if there are none.
+        ctrl_chan = dma_claim_unused_channel(true);                             // Find 2 x free DMA channels for the DAC (12 available)
+        data_chan = dma_claim_unused_channel(true);
 
-        if (_speed == 1) {
-        // Configure the state machine to run the FastDAC program...
-            SM_fast = _StateMachine;
-            _offset = pio_add_program(_pio, &pio_FastDAC_program);
-            SM_code_fast = _offset;
-            pio_FastDAC_program_init(_pio, _StateMachine, _offset, _startpin);
-            ctrl_chan_fast = ctrl_chan ;                                        // Make details available to getter functions
-            data_chan_fast = data_chan ;
-        } else {
-        // Configure the state machine to run the SlowDAC program...
-            SM_slow = _StateMachine;
-            _offset = pio_add_program(_pio, &pio_SlowDAC_program);              // Use helper function included in the .pio file.
-            SM_code_slow = _offset;
-            pio_SlowDAC_program_init(_pio, _StateMachine, _offset, _startpin);
-            ctrl_chan_slow = ctrl_chan ;                                        // Make details available to getter functions
-            data_chan_slow = data_chan ;
-        }
+        // Configure the state machine to run the DAC program...
+            _offset = pio_add_program(_pio, &pio_DAC_program);                  // Use helper function included in the .pio file.
+            SM_WrapBot = _offset;
+            pio_DAC_program_init(_pio, StateMachine, _offset, _GPIO);
 
         //  Setup the DAC control channel...
         //  The control channel transfers two words into the data channel's control registers, then halts. The write address wraps on a two-word
@@ -277,22 +255,22 @@ public:
         channel_config_set_transfer_data_size(&fc, DMA_SIZE_32);                // 32-bit txfers
         channel_config_set_read_increment(&fc, true);                           // increment the read adddress
         channel_config_set_write_increment(&fc, false);                         // don't increment write address
-        channel_config_set_dreq(&fc, pio_get_dreq(_pio, _StateMachine, true));  // Transfer when PIO SM TX FIFO has space
+        channel_config_set_dreq(&fc, pio_get_dreq(_pio, StateMachine, true));   // Transfer when PIO SM TX FIFO has space
         channel_config_set_chain_to(&fc, ctrl_chan);                            // chain to the controller DMA channel
         channel_config_set_ring(&fc, false, 9);                                 // 8 bit DAC 1<<9 byte boundary on read ptr. This is why we needed alignment!
         dma_channel_configure(
             data_chan,                                                          // Channel to be configured
             &fc,                                                                // The configuration we just created
-            &_pio->txf[_StateMachine],                                          // Write to FIFO
+            &_pio->txf[StateMachine],                                           // Write to FIFO
             DAC_data,                                                           // The initial read address (AT NATURAL ALIGNMENT POINT)
             BitMapSize,                                                         // Number of transfers; in this case each is 2 byte.
             false                                                               // Don't start immediately. All 4 control channels need to start simultaneously
                                                                                 // to ensure the correct phase shift is applied.
         );
-        // Note: All DMA channels are left running permanently. The active channel is selected by enabling/disabling the associated State Machine.
-        DAC_channel_mask += (1u << ctrl_chan) ;                                 // Save details of DMA control channel to global variable
+        DAC_channel_mask += (1u << ctrl_chan) ;                                 // Save details of DMA control channel to global variable. This facilitates
+                                                                                // atomic restarts of both channels, and ensures phase lock between channels.
 
-        return(_StateMachine);
+        return(StateMachine);
     }
 };
 
@@ -312,7 +290,7 @@ public:
     // Setter function...
     void Set_Frequency(int _frequency){
         Freq = _frequency;                                                  // Copy parm to class var
-    // Frequency scaled by 2000 as blink.pio requires this number of cycles to complete...
+        // Frequency scaled by 2000 as blink.pio requires this number of cycles to complete...
         float DAC_div = (float)clock_get_hz(clk_sys) /((float)_frequency*2000);
         pio_sm_set_clkdiv(pio, StateMachine, DAC_div);                      // Set the State Machine clock speed
     }
@@ -349,7 +327,7 @@ void ChanInfo ( DACchannel DACchannel[], int _chanNum) {
 }
 
 void SysInfo ( DACchannel DACchannel[], blink_forever LED_blinky) {
-// Print system and resource allocation details...
+    // Print system and resource allocation details...
     int a,b,c,d ;
     a = LED_blinky.Get_Resource(_PIO_);
     b = LED_blinky.Get_Resource(_SM_);
@@ -366,47 +344,34 @@ void SysInfo ( DACchannel DACchannel[], blink_forever LED_blinky) {
     printf("|   Frequency:    %2dHz        |                             |\n",d);
     printf("|-----------------------------|-----------------------------|\n");
     printf("| DAC channel A               | DAC channel B               |\n");
+    a = DACchannel[_A].Get_Resource(_Freq_), b = DACchannel[_B].Get_Resource(_Freq_);
+    printf("| Frequency:     %3d          | Frequency:     %3d          |\n",a,b);
+    a = DACchannel[_A].Get_Resource(_DAC_div_), b = DACchannel[_B].Get_Resource(_DAC_div_);
+    printf("| Divider:     %05x          | Divider:     %05x          |\n",a,b);
     printf("|-----------------------------|-----------------------------|\n");
-    a = DACchannel[_A].Get_Resource(_PIO_);
-    b = DACchannel[_B].Get_Resource(_PIO_);
+    a = DACchannel[_A].Get_Resource(_PIO_), b = DACchannel[_B].Get_Resource(_PIO_);
     printf("| PIO:             %d          | PIO:             %d          |\n",a,b);
-    a = DACchannel[_A].Get_Resource(_GPIO_);
-    b = DACchannel[_B].Get_Resource(_GPIO_);
+    a = DACchannel[_A].Get_Resource(_GPIO_), b = DACchannel[_B].Get_Resource(_GPIO_);
     printf("| GPIO:          %d-%d          | GPIO:         %d-%d          |\n",a,a+7,b,b+7);
     printf("| BM size:  %8d          | BM size:  %8d          |\n", BitMapSize,  BitMapSize);
-    a = DACchannel[_A].Get_Resource(_BM_start_);
-    b = DACchannel[_B].Get_Resource(_BM_start_);
+    a = DACchannel[_A].Get_Resource(_BM_start_), b = DACchannel[_B].Get_Resource(_BM_start_);
     printf("| BM start: %x          | BM start: %x          |\n",a,b);
-    printf("| Divider:     %05x          | Divider:     %05x          |\n",0,0);
-    printf("|--------------|--------------|--------------|--------------|\n");
-    printf("| Fast DAC     | Slow DAC     | Fast DAC     |  Slow DAC    |\n");
-    printf("|--------------|--------------|--------------|--------------|\n");
-    a = DACchannel[_A].Get_Resource(_SM_fast_);
-    b = DACchannel[_A].Get_Resource(_SM_slow_);
-    c = DACchannel[_B].Get_Resource(_SM_fast_);
-    d = DACchannel[_B].Get_Resource(_SM_slow_);
-    printf("| SM:        %d | SM:        %d | SM:        %d | SM:        %d |\n",a,b,c,d);
-    a = DACchannel[_A].Get_Resource(_SM_code_fast_);
-    b = DACchannel[_A].Get_Resource(_SM_code_slow_);
-    c = DACchannel[_B].Get_Resource(_SM_code_fast_);
-    d = DACchannel[_B].Get_Resource(_SM_code_slow_);
-    printf("| SM code:  %2d | SM code:  %2d | SM code:  %2d | SM code:  %2d |\n",a,b,c,d);
-    a = DACchannel[_A].Get_Resource(_DMA_ctrl_fast_);
-    b = DACchannel[_A].Get_Resource(_DMA_ctrl_slow_);
-    c = DACchannel[_B].Get_Resource(_DMA_ctrl_fast_);
-    d = DACchannel[_B].Get_Resource(_DMA_ctrl_slow_);
-    printf("| DMA ctrl: %2d | DMA ctrl: %2d | DMA ctrl: %2d | DMA ctrl: %2d |\n",a,b,c,d);
-    a = DACchannel[_A].Get_Resource(_DMA_data_fast_);
-    b = DACchannel[_A].Get_Resource(_DMA_data_slow_);
-    c = DACchannel[_B].Get_Resource(_DMA_data_fast_);
-    d = DACchannel[_B].Get_Resource(_DMA_data_slow_);
-    printf("| DMA data: %2d | DMA data: %2d | DMA data: %2d | DMA data: %2d |\n",a,b,c,d); 
+    a = DACchannel[_A].Get_Resource(_SM_), b = DACchannel[_B].Get_Resource(_SM_);
+    printf("| SM:              %d          | SM:              %d          |\n",a,b);
+    a = DACchannel[_A].Get_Resource(_SM_codeBot_), b = DACchannel[_B].Get_Resource(_SM_codeBot_);
+    printf("| Wrap Bottom:    %2x          | Wrap Bottom:    %2x          |\n",a,b);
+    a = DACchannel[_A].Get_Resource(_SM_codeTop_), b = DACchannel[_B].Get_Resource(_SM_codeTop_);
+    printf("| Wrap Top:       %2x          | Wrap Top:       %2x          |\n",a,b);
+    a = DACchannel[_A].Get_Resource(_DMA_ctrl_), b = DACchannel[_B].Get_Resource(_DMA_ctrl_);
+    printf("| DMA ctrl:       %2d          | DMA ctrl:       %2d          |\n",a,b);
+    a = DACchannel[_A].Get_Resource(_DMA_data_), b = DACchannel[_B].Get_Resource(_DMA_data_);
+    printf("| DMA data:       %2d          | DMA data:       %2d          |\n",a,b);
     printf("|--------------|--------------|--------------|--------------|\n");
 }
 
 static inline void cs_select() {
     asm volatile("nop \n nop \n nop");
-    gpio_put(Nixie_CS, 0);  // Active low
+    gpio_put(Nixie_CS, 0);                                                      // Active low
     asm volatile("nop \n nop \n nop");
 }
 
@@ -495,9 +460,19 @@ int main() {
 
 // Set up the objects controlling the various State Machines...
 // Note: Both DAC channels need to be on the same PIO to acheive accurate phase sync.
-    DACchannel[_A].NewDMAtoDAC_channel(pio1,0);                              // First  DAC channel object in array - resistor network connected to GPIO0->7
-    DACchannel[_B].NewDMAtoDAC_channel(pio1,8);                              // Second DAC channel object in array - resistor network connected to GPIO8->15
+    DACchannel[_A].DAC_chan(pio1,0);                              // First  DAC channel object in array - resistor network connected to GPIO0->7
+    DACchannel[_B].DAC_chan(pio1,8);                              // Second DAC channel object in array - resistor network connected to GPIO8->15
     blink_forever LED_blinky(pio0);                                          // Onboard LED blinky object
+
+// Set default run time settings...
+    DACchannel[_A].SetRange(1),         DACchannel[_B].SetRange(1) ;         // Hz
+    DACchannel[_A].SetFreq(100),        DACchannel[_B].SetFreq(100) ;        // 100
+    DACchannel[_A].SetPhase(0),         DACchannel[_B].SetPhase(180) ;       // 180 phase diff
+    DACchannel[_A].SetFunct(_Sine_),    DACchannel[_B].SetFunct(_Sine_) ;    // Sine wave, no harmonics
+    DACchannel[_A].SetDutyC(50),        DACchannel[_B].SetDutyC(50);         // 50% Duty cycle
+    DACchannel[_A].DataCalc(),          DACchannel[_B].DataCalc();           // Generate the two data sets
+
+    SPI_Nixie_Write(DACchannel[_A].Get_Resource(_Freq_));                    // Frequency => Nixie display
 
 // Set LED to slow flash indicates waiting for USB connection...
     LED_blinky.Set_Frequency(1);                                             // 1Hz
@@ -506,20 +481,10 @@ int main() {
     while (!stdio_usb_connected()) { sleep_ms(100); }
 
 // USB connection established, set LED to rapid flash...
-    LED_blinky.Set_Frequency(10);                                             // 10Hz
+    LED_blinky.Set_Frequency(10);                                            // 10Hz
 
     SysInfo(DACchannel, LED_blinky);                                         // Show configuration (optional)
 //  printf(HelpText);                                                        // Show instructions  (optional)
-
-// Set default run time settings...
-    DACchannel[_A].SetFreq(100),        DACchannel[_B].SetFreq(100) ;        // 100
-    DACchannel[_A].SetRange(1),         DACchannel[_B].SetRange(1) ;         // Hz
-    DACchannel[_A].SetPhase(0),         DACchannel[_B].SetPhase(180) ;       // 180 phase diff
-    DACchannel[_A].SetFunct(_Sine_),    DACchannel[_B].SetFunct(_Sine_) ;    // Sine wave, no harmonics
-    DACchannel[_A].SetDutyC(50),        DACchannel[_B].SetDutyC(50);         // 50% Duty cycle
-    DACchannel[_A].DataCalc(),          DACchannel[_B].DataCalc();           // Generate the two data sets
-
-    SPI_Nixie_Write(DACchannel[_A].Get_Resource(_Freq_));                    // Frequency => Nixie display
 
 // Starting all 4 DMA channels simultaneously ensures phase sync across all State Machines...
     dma_start_channel_mask(DAC_channel_mask);
@@ -538,6 +503,10 @@ int main() {
         if (inString[0] == 'A') { SelectedChan = 0b0001;           }            // Channel A
         if (inString[0] == 'B') { SelectedChan = 0b0010;           }            // Channel B
         if (inString[0] == 'C') { SelectedChan = 0b0011;           }            // Channel A & B
+
+        // Zero length string = 'CR' pressed...
+        if (strlen(inString) == 0) { strcpy(inString,LastCmd) ;    }            // Repeat last command
+
         // Parse command line to extract numeric parameters. Leading zeros are ignored...
         i = 1 ;                                                                 // Skip chars 0 & 1
         while (i++ < strlen(inString)-1 ) {                                     // Start at char 2
@@ -547,11 +516,35 @@ int main() {
         }
         // Perform the selected command...
         switch ( inString[1] ) {
-            case 'w':                                           // Frequency sweep
+            case 'x':
+                if (SelectedChan & 0b01) {
+                    DACchannel[_A].BumpFreq(_Up);
+                    Parm[0] = DACchannel[_A].Get_Resource(_Freq_) ; // Grab value for Nixie display
+                                                                    // and update the terminal
+                }
+                if (SelectedChan & 0b10) {
+                    DACchannel[_B].BumpFreq(_Up);
+                    Parm[0] = DACchannel[_B].Get_Resource(_Freq_) ; // Grab value for Nixie display
+                                                                    // and update the terminal
+                }
+                break ;
+            case 'y':
+                if (SelectedChan & 0b01) {
+                    DACchannel[_A].BumpFreq(_Down);
+                    Parm[0] = DACchannel[_A].Get_Resource(_Freq_) ; // Grab value for Nixie display
+                                                                    // and update the terminal
+                }
+                if (SelectedChan & 0b10) {
+                    DACchannel[_B].BumpFreq(_Down);
+                    Parm[0] = DACchannel[_B].Get_Resource(_Freq_) ; // Grab value for Nixie display
+                                                                    // and update the terminal
+                }
+                break ;
+            case 'w':                                               // Frequency sweep
                 i = Parm[0];
                 for (;;) {
-                    DACchannel[_A].ReInit();                    // Stop DAC channel A and re-initialise DMA to start of Bitmap data
-                    DACchannel[_B].ReInit();                    // Stop DAC channel B and re-initialise DMA to start of Bitmap data
+                    DACchannel[_A].ReInit();                        // Stop DAC channel A and re-initialise DMA to start of Bitmap data
+                    DACchannel[_B].ReInit();                        // Stop DAC channel B and re-initialise DMA to start of Bitmap data
                     if (SelectedChan & 0b01) {
                         DACchannel[_A].SetFreq(i); 
                         ChanInfo(DACchannel, _A);               // Update the terminal
@@ -646,6 +639,7 @@ int main() {
         if (SelectedChan & 0b01) { ChanInfo(DACchannel, _A); }   // Update the terminal
         if (SelectedChan & 0b10) { ChanInfo(DACchannel, _B); }
         SPI_Nixie_Write(Parm[0]);                                // Update Nixie display
+        strcpy(LastCmd, inString) ;                              // Preserve last command
         free(inString);                                          // free buffer
     }
     return 0;
