@@ -1,15 +1,14 @@
 # Function Generator on a RP2040. #
 * TBD:
-  * Tighten up the phase lock code
   * Port the clock code from [here](https://www.micro-examples.com/articles/index.php?title=PicOClock)
 
 * Features:
-  * Direct digital synthesis (DDS) Function Generator
-  * Dual 8 bit R2R Digital to Analog converter
+  * Direct Digital Synthesis (DDS) Function Generator
+  * Dual 8 bit R-2-R Digital to Analog converter
   * Target device = Pimoroni PGA2040 (header can be modified to use Pico)
-  * External 3 digit display
+  * External, 3 digit, SPI display
   * Independant control of either channel through Putty terminal session
-  * Putty terminal session on USB port  
+  * Putty terminal session over USB port  
 
 
 **Two independanty controled, phase locked, DMA channels...**
