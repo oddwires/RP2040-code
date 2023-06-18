@@ -17,17 +17,12 @@
 // SPI Port connections...                          // ┌──────────┬───────────────┬─────────────┐────────────────┐
                                                     // │ PGA2040  │ Connection    │ MCP41010    │ Display module │
                                                     // ├──────────┼───────────────┼─────────────┤────────────────┤
-/* #define PIN_RX          16                          // │ GPIO 16  │ RX/spi1_rx    │             │      -         │
+#define PIN_RX          16                          // │ GPIO 16  │ RX/spi1_rx    │             │      -         │
 //#define PIN_CS          17                        // │ GPIO 17  │ CS/spi1_cs    │             │                │ can this be re-defined ?
 #define PIN_CLK         18                          // │ GPIO 18  │ CLK/spi1_clk  │             │  SCK (blue)    │
 #define PIN_TX          19                          // │ GPIO 19  │ TX/spi1_tx    │             │  SDI (green)   │
-#define Display_CS        21                        // │ GPIO 21  │ Chip select   │             │  SS1 (white)   │ */
-
-#define PIN_RX           4                          // │ GPIO  4  │ RX/spi1_rx    │             │      -         │
-//#define PIN_CS          17                        // │ GPIO 17  │ CS/spi1_cs    │             │                │ can this be re-defined ?
-#define PIN_CLK          2                          // │ GPIO  2  │ CLK/spi1_clk  │             │  SCK (blue)    │
-#define PIN_TX           3                          // │ GPIO  3  │ TX/spi1_tx    │             │  SDI (green)   │
-#define Display_CS       6                          // │ GPIO  6  │ Chip select   │             │  SS1 (white)   │
+#define Display_CS      20                          // │ GPIO 20  │ Chip select   │             │  SS1 (white)   │
+#define Level_CS        21                          // │ GPIO 21  │ Chip select   │             │                │
                                                     // └──────────┴───────────────┴─────────────┘────────────────┘
 #define SPI_PORT        spi0                        // These SPI connections require the use of RP2040 SPI port 0
 
@@ -43,8 +38,9 @@
 #define _Funct_          8
 #define _Phase_          9
 #define _Freq_          10
-#define _Duty_          11
-#define _Range_         12
+#define _Level_         11
+#define _Duty_          12
+#define _Range_         13
 #define eof            255                          // EOF in stdio.h -is -1, but getchar returns int 255 to avoid blocking
 #define CR              13
 #define BitMapSize     256                          // Match X to Y resolution
@@ -72,6 +68,9 @@ const char * HelpText =
 "\t  <A/B/C>phnnn - Phase = nnn                ( 0->359 degrees )\n"
 "\t  <A/B/C>ph+   - Phase + 1\n"
 "\t  <A/B/C>ph-   - Phase - 1\n"
+"\t  <A/B/C>lennn - Level = nnn                ( 0->100%% )\n"
+"\t  <A/B/C>le+   - Level + 1\n"
+"\t  <A/B/C>le-   - Level - 1\n"
 "\t  <A/B/C>dunnn - Duty Cycle = nnn           ( 0->100%% )\n"
 "\t  <A/B/C>du+   - Duty Cycle + 1\n"
 "\t  <A/B/C>du-   - Duty Cycle - 1\n"
@@ -79,32 +78,34 @@ const char * HelpText =
 "\t  <A/B/C> = DAC channel A,B or Both\n"
 "\t  nnn     = Three digit numeric value\n";
 
+static void MCP41020_Write (uint8_t _ctrl, uint8_t _data) ;
+
 class DAC {
 public:
     PIO pio;                                                                // Class wide var to share value with setter function
     unsigned short DAC_data[BitMapSize] __attribute__ ((aligned(2048))) ;   // Align DAC data (2048d = 0800h)
-    int Phase, Funct, Freq, Range, DutyC, PIOnum ;
+    int Phase, Funct, Freq, Level, Range, DutyC, PIOnum ;
     uint StateMachine, ctrl_chan, data_chan, GPIO, SM_WrapBot, SM_WrapTop ; // Variabes used by the getter function...
     char name ;                                                             // Name of this instance
     float DAC_div ;
 
     void StatusString () {
     // Print the status line for the current DAC object.
-        char Str1[4], Str2[50] ;                                            // !  Max line length = 50 chars !
+        char Str1[4], Str2[100] ;                                           // !  Max line length = 100 chars !
         Range == 1 ? strcpy(Str1,"Hz") : strcpy(Str1,"KHz") ;               // Asign multiplier suffix
             switch ( Funct ) {                                              // Calculate status sting...
                 case _Sine_:
-                    sprintf(Str2,"\tChannel %c: Freq:%03d%s Phase:%03d  Wave:Sine\n", name, Freq, Str1, Phase) ;
+                    sprintf(Str2,"\tChannel %c: Freq:%03d%s Phase:%03d Level:%03d Wave:Sine\n", name, Freq, Str1, Phase, Level) ;
                     break;
                 case _Triangle_:
                     if ((DutyC == 0) || (DutyC == 100)) {
-                        sprintf(Str2,"\tChannel %c: Freq:%03d%s Phase:%03d  Wave:Sawtooth\n", name, Freq, Str1, Phase) ;
+                        sprintf(Str2,"\tChannel %c: Freq:%03d%s Phase:%03d Level:%03d Wave:Sawtooth\n", name, Freq, Str1, Phase, Level) ;
                     } else {
-                        sprintf(Str2,"\tChannel %c: Freq:%03d%s Phase:%03d  Wave:Triangle Rise time:%d%%\n", name, Freq, Str1, Phase, DutyC) ;
+                        sprintf(Str2,"\tChannel %c: Freq:%03d%s Phase:%03d Level:%03d Wave:Triangle Rise time:%d%%\n", name, Freq, Str1, Phase, Level, DutyC) ;
                     }
                 break;
                 case _Square_:
-                    sprintf(Str2,"\tChannel %c: Freq:%03d%s Phase:%03d  Wave:Square Duty cycle:%d%%\n", name, Freq, Str1, Phase, DutyC) ;
+                    sprintf(Str2,"\tChannel %c: Freq:%03d%s Phase:%03d Level:%03d Wave:Square Duty cycle:%d%%\n", name, Freq, Str1, Phase, Level, DutyC) ;
             }
         strcat(outStr,Str2) ;
     }
@@ -126,6 +127,7 @@ public:
     }
     
     int Set(int _type, int _val) {
+//      uint8_t tmp ;
     // _type = Frequency / Phase / Duty, _dirn = Up / Down (_Up = 1, _Down = -1)
         if (_type == _Freq_) {
             Freq  = _val ;                              // Frequency (numeric)
@@ -142,6 +144,11 @@ public:
         if (_type == _Duty_) {
             DutyC = _val ;                              // Duty cycle  (0->100%)
             DataCalc() ; }                              // Recalc Bitmap and apply new Duty Cycle value
+        if (_type == _Level_) {                         // Level  (0->100%)
+            if (_val > 100) _val = 100 ;                // Limit max val to 100%
+            Level = _val ;
+            MCP41020_Write(SelectedChan, Level) ;       // Control byte for the MCP42010 just happens to be the same value as the SelectedChan variable
+            StatusString () ; }                         // Update the terminal session
         if (_type == _Funct_) {                         // Function    (Sine/Triangl/Square)
             Funct = _val ;
             DataCalc() ;                                // Recalc Bitmap and apply new Function value
@@ -150,20 +157,27 @@ public:
     }
 
     int Bump(int _type, int _dirn) {
-    // _type = Frequency / Phase / Duty, _dirn = Up / Down (_Up = 1, _Down = -1)
+    // _type = Frequency / Phase / Level, Duty, _dirn = Up / Down (_Up = 1, _Down = -1)
         int val = 0 ;
         if (_type == _Freq_) {
             Freq += _dirn ;
-            if (Freq >= 1000) Freq = 0 ;                // Endwrap
-            if (Freq < 0)     Freq = 999 ;              // Endwrap
+            if (Freq >= 1000) Freq = 0 ;                // Top Endwrap
+            if (Freq < 0)     Freq = 999 ;              // Bottom Endwrap
             val = Freq ;
             DACspeed(Freq * Range) ;  }
         if (_type == _Phase_) {
             Phase += _dirn ;
-            if (Phase == 360)  Phase = 0 ;              // Endwrap
-            if (Phase  < 0  )  Phase = 359 ;            // Endwrap
+            if (Phase == 360)  Phase = 0 ;              // Top Endwrap
+            if (Phase  < 0  )  Phase = 359 ;            // Bottom Endwrap
             val = Phase ;
             DataCalc(); }                               // Update Bitmap data to include new DAC phase
+        if (_type == _Level_) {
+            Level += _dirn ;
+            if (Level > 100) { Level = 0 ;   }          // Top endwrap
+            if (Level < 0  ) { Level = 100 ; }          // Bottom endwrap
+            val = Level ; 
+            MCP41020_Write(SelectedChan, Level) ;       // Control byte for the MCP42010 just happens to be the same value as the SelectedChan variable
+            StatusString () ; }                         // Update the terminal session
         if (_type == _Duty_) {
             DutyC += _dirn ;
             if (DutyC > 100) { DutyC = 0 ;   }          // Top endwrap
@@ -197,7 +211,7 @@ public:
         // The State Machine program counter will still be pointing to an op-code within the new WRAP statement, so will not crash.
             pio_sm_set_clkdiv(pio, StateMachine, DAC_div);                      // Set the State Machine clock speed
         }
-        StatusString () ;                                                        // Update the terminal session
+        StatusString () ;                                                       // Update the terminal session
     }
 
     void DataCalc () {
@@ -267,7 +281,7 @@ public:
     int DAC_chan(char _name, PIO _pio, uint _GPIO) {
         pio = _pio, GPIO = _GPIO, name = _name ;                                // Copy parameters to class vars
         PIOnum = pio_get_index(pio) ;                                           // Print friendly value
-        Funct = _Sine_, Freq = 100, Range = 1, DutyC = 50 ;                     // Assign start-up default values.
+        Funct = _Sine_, Freq = 100, Range = 1, Level = 50, DutyC = 50 ;         // Start-up default values.
         name == 'A' ? Phase = 0 : Phase = 180 ;                                 // Phase difference between channels
         int _offset;
         StateMachine = pio_claim_unused_sm(_pio, true);                         // Find a free state machine on the specified PIO - error if there are none.
@@ -388,15 +402,15 @@ void SysInfo ( DAC DAC[], blink_forever LED_blinky) {
                    DAC[_A].data_chan,                  DAC[_B].data_chan );
 }
 
-static inline void cs_select() {
+static inline void cs_select(int _gpio) {
     asm volatile("nop \n nop \n nop");
-    gpio_put(Display_CS, 0);                                                      // Active low
+    gpio_put(_gpio, 0);                                                      // Active low
     asm volatile("nop \n nop \n nop");
 }
 
-static inline void cs_deselect() {
+static inline void cs_deselect(int _gpio) {
     asm volatile("nop \n nop \n nop");
-    gpio_put(Display_CS, 1);
+    gpio_put(_gpio, 1);
     asm volatile("nop \n nop \n nop");
 }
 
@@ -404,10 +418,21 @@ static void SPI_Display_Write(int _data) {
     uint8_t buff[2];
     buff[0] = _data / 256;                                                      // MSB data
     buff[1] = _data % 256;                                                      // LSB data
-    cs_select();
+    cs_select(Display_CS);
     spi_write_blocking(SPI_PORT, buff, 2);
-    cs_deselect();
+    cs_deselect(Display_CS);
 }
+
+static void MCP41020_Write (uint8_t _ctrl, uint8_t _data) {
+    // Adds a control byte and converts level from percentage to absolute value, before
+    // transmitting over SPI bus.
+    uint8_t buff[2];
+    buff[0] = _ctrl | 0x10 ;                        // Set command bit to Write data
+    buff[1] = _data * 2.55 ;                        // Data byte (100%->255)
+    cs_select(Level_CS) ;
+    spi_write_blocking(SPI_PORT, buff, 2) ;
+    cs_deselect(Level_CS) ;
+}    
 
 static void getLine() {
     char *pPos = (char *)inStr ;                            // Pointer to start of Global input string
@@ -433,6 +458,15 @@ int main() {
     gpio_init(Display_CS);
     gpio_set_dir(Display_CS, GPIO_OUT);
     gpio_put(Display_CS, 1);
+    gpio_init(Level_CS);
+    gpio_set_dir(Level_CS, GPIO_OUT);
+    gpio_put(Level_CS, 1);
+
+/* // Makes no noticable difference to R2R output...
+    for (int i=0; i<8; i++) {
+        gpio_set_slew_rate(i, GPIO_SLEW_RATE_FAST);
+        gpio_set_drive_strength(i, GPIO_DRIVE_STRENGTH_12MA);
+    } */
 
 // Initialise remaining SPI connections...
     gpio_set_dir(PIN_CLK, GPIO_OUT);
@@ -450,6 +484,7 @@ int main() {
     strcpy(LastCmd,"?") ;                                             // Hitting return will give 'Help'
 
     SPI_Display_Write(0) ;                                            // Zero => SPI display
+    MCP41020_Write(0x3, 50) ;                                         // Both channels -> 50% output level
 
     LED_blinky.Set_Frequency(1);                                      // Flash LED at 1Hz- waiting for USB connection
 
@@ -488,7 +523,7 @@ int main() {
         if (inStr[0] == 'B') { SelectedChan = 0b0010; }                                  // Channel B only
         if (inStr[0] == 'C') { SelectedChan = 0b0011; }                                  // Channel A & B
 
-        // ...and if we aren't bumping a value, there will be one or more parameters...
+        // ...and if we aren't bumping a value, there will be one or more numeric parameters...
         if ((inStr[2] != '+') && (inStr[2] != '-')) {
             i = 2 ;                                                                      // Skip chars 0, 1 and 2
             while (i++ < strlen(inStr)-1 ) {                                             // Starts at char 3
@@ -547,8 +582,22 @@ int main() {
                 if (SelectedChan & 0b10) result = DAC[_B].Bump(_Duty_,_Down) ;
             } else {                                                                    // Not a bump, so set the absolute value from Parm[0]...
                 if ( Parm[0] > 100 ) Parm[0] = 100;                                     // Hard limit @ 100%
-                if (SelectedChan & 0b01) DAC[_A].Set(_Duty_,Parm[0]) ;
-                if (SelectedChan & 0b10) DAC[_B].Set(_Duty_,Parm[0]) ;
+                if (SelectedChan & 0b01) result = DAC[_A].Set(_Duty_,Parm[0]) ;
+                if (SelectedChan & 0b10) result = DAC[_B].Set(_Duty_,Parm[0]) ;
+            }
+        }
+
+        if ((inStr[1] == 'l') & (inStr[2] == 'e')) {                                    // Set level
+            if (inStr[3] == '+') {                                                      // Bump up and grab result for SPI display...
+                if (SelectedChan & 0b01) result = DAC[_A].Bump(_Level_,_Up) ;
+                if (SelectedChan & 0b10) result = DAC[_B].Bump(_Level_,_Up) ;
+            } else if (inStr[3] == '-') {                                               // Bump down and grab result for SPI display...
+                if (SelectedChan & 0b01) result = DAC[_A].Bump(_Level_,_Down) ;
+                if (SelectedChan & 0b10) result = DAC[_B].Bump(_Level_,_Down) ;
+            } else {                                                                    // Not a bump, so set the absolute value from Parm[0]...
+                if ( Parm[0] > 255 ) Parm[0] = 255;                                     // Hard limit @ 100%
+                if (SelectedChan & 0b01) result = DAC[_A].Set(_Level_,Parm[0]) ;
+                if (SelectedChan & 0b10) result = DAC[_B].Set(_Level_,Parm[0]) ;
             }
         }
 
@@ -588,7 +637,7 @@ int main() {
             }
         }
 
-        if (strlen(outStr) == 0) strcpy(outStr,"\t?\n") ;                               // Unknown command
+        if (strlen(outStr) == 0) strcpy(outStr,"\t?\n") ;                               // If buffer still empty indiates unknown command
         printf(outStr) ;                                                                // Update terminal
         outStr[0] = '\0' ;                                                              // Clear (reset) the string variable
         SPI_Display_Write(result) ;                                                     // Update SPI display
