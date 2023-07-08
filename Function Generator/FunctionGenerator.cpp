@@ -33,14 +33,15 @@
 #define _Sine_           0                          // Permited values for variable WaveForm_Type
 #define _Square_         1
 #define _Triangle_       2
-#define _DMA_ctrl_       6
-#define _DMA_data_       7
-#define _Funct_          8
-#define _Phase_          9
-#define _Freq_          10
-#define _Level_         11
-#define _Duty_          12
-#define _Range_         13
+//#define _DMA_ctrl_       6
+//#define _DMA_data_       7
+#define _Funct_          3
+#define _Phase_          4
+#define _Freq_           5
+#define _Level_          6
+#define _Duty_           7
+#define _Range_          8
+#define _Harmonic_       9
 #define eof            255                          // EOF in stdio.h -is -1, but getchar returns int 255 to avoid blocking
 #define CR              13
 #define BitMapSize     256                          // Match X to Y resolution
@@ -51,11 +52,19 @@ const uint32_t transfer_count = BitMapSize ;        // Number of DMA transfers p
 int ParmCnt = 0, Parm[4], WaveForm_Type ;           // Storage for 4 command line parameters
 int SelectedChan, c, i = 0, dirn = 1, result ;
 char inStr[30], outStr[2048], LastCmd[30] ;         // outStr large enough to contain the HelpText string
+const char * VerText =
+"\t|--------------------|\n"
+"\t| Function Generator |\n"
+"\t|   Version 1.0.0    |\n"
+"\t|   8th July 2023    |\n"
+"\t|--------------------|\n";
+
 const char * HelpText = 
-"\tUsage...\n"
-"\t  ?            - Usage\n"
-"\t  S            - Status\n"
+"\tHelp...\n"
+"\t  ?            - Help\n"
+"\t  V            - Version\n"
 "\t  R            - Resource Allocation\n"
+"\t  S            - Status\n"
 "\t  <A/B/C>h     - Frequency multiplier  Hz\n"
 "\t  <A/B/C>k     - Frequency multiplier KHz\n"
 "\t  <A/B/C>si    - Sine wave\n"
@@ -68,6 +77,9 @@ const char * HelpText =
 "\t  <A/B/C>phnnn - Phase = nnn                ( 0->359 degrees )\n"
 "\t  <A/B/C>ph+   - Phase + 1\n"
 "\t  <A/B/C>ph-   - Phase - 1\n"
+"\t  <A/B/C>shnnn - Sine harmonic = nnn        ( 0->9 )\n"
+"\t  <A/B/C>sh+   - Sine harmonic + 1\n"
+"\t  <A/B/C>sh-   - Sine harmonic - 1\n"
 "\t  <A/B/C>lennn - Level = nnn                ( 0->100%% )\n"
 "\t  <A/B/C>le+   - Level + 1\n"
 "\t  <A/B/C>le-   - Level - 1\n"
@@ -84,7 +96,7 @@ class DAC {
 public:
     PIO pio;                                                                // Class wide var to share value with setter function
     unsigned short DAC_data[BitMapSize] __attribute__ ((aligned(2048))) ;   // Align DAC data (2048d = 0800h)
-    int Phase, Funct, Freq, Level, Range, DutyC, PIOnum ;
+    int Phase, Funct, Harm, Freq, Level, Range, DutyC, PIOnum ;
     uint StateMachine, ctrl_chan, data_chan, GPIO, SM_WrapBot, SM_WrapTop ; // Variabes used by the getter function...
     char name ;                                                             // Name of this instance
     float DAC_div ;
@@ -95,7 +107,7 @@ public:
         Range == 1 ? strcpy(Str1,"Hz") : strcpy(Str1,"KHz") ;               // Asign multiplier suffix
             switch ( Funct ) {                                              // Calculate status sting...
                 case _Sine_:
-                    sprintf(Str2,"\tChannel %c: Freq:%03d%s Phase:%03d Level:%03d Wave:Sine\n", name, Freq, Str1, Phase, Level) ;
+                    sprintf(Str2,"\tChannel %c: Freq:%03d%s Phase:%03d Level:%03d Wave:Sine Harmonic:%d\n", name, Freq, Str1, Phase, Level, Harm) ;
                     break;
                 case _Triangle_:
                     if ((DutyC == 0) || (DutyC == 100)) {
@@ -127,8 +139,6 @@ public:
     }
     
     int Set(int _type, int _val) {
-//      uint8_t tmp ;
-    // _type = Frequency / Phase / Duty, _dirn = Up / Down (_Up = 1, _Down = -1)
         if (_type == _Freq_) {
             Freq  = _val ;                              // Frequency (numeric)
             ReInit() ;                                  // Stop and reset the DAC channel (no restart)
@@ -141,6 +151,9 @@ public:
             Phase  = _val ;                             // Phase shift (0->355 degrees)
             ReInit() ;                                  // Stop and reset the DAC channel (no restart)
             DataCalc() ; }                              // Recalc Bitmap and apply new phase value
+        if (_type == _Harmonic_) {
+            Harm = _val ;                               // Harmanic (0->9)
+            DataCalc() ; }                              // Recalc Bitmap and apply new Duty Cycle value
         if (_type == _Duty_) {
             DutyC = _val ;                              // Duty cycle  (0->100%)
             DataCalc() ; }                              // Recalc Bitmap and apply new Duty Cycle value
@@ -184,6 +197,12 @@ public:
             if (DutyC < 0  ) { DutyC = 100 ; }          // Bottom endwrap
             val = DutyC ;
             DataCalc(); }                               // Update Bitmap with new Duty Cycle value
+        if (_type == _Harmonic_) {
+            Harm += _dirn ;
+            if (Harm > 10) { Harm = 0 ;   }             // Top endwrap
+            if (Harm < 0 ) { Harm = 9 ;   }             // Bottom endwrap
+            val = Harm ;
+            DataCalc(); }                               // Update Bitmap with new Sine harmonic value
         return (val) ;
     }
 
@@ -222,24 +241,24 @@ public:
         float a,b,x1,x2,g1,g2;
 
     // Scale the phase shift to match data size...    
-        _phase = Phase * BitMapSize / 360 ;                                                            // Input  range: 0 -> 360 (degrees)
+        _phase = Phase * BitMapSize / 360 ;                                                           // Input  range: 0 -> 360 (degrees)
                                                                                                       // Output range: 0 -> 255 (bytes)
         switch (Funct) {
             case _Sine_:
-                DutyC = DutyC % 10;                                                                   // Sine value cycles after 7
+                Harm = Harm % 10;                                                                     // Sine harmonics cycles after 7
                 for (i=0; i<BitMapSize; i++) {
                 // Add the phase offset and wrap data beyond buffer end back to the buffer start...
                     j = ( i + _phase ) % BitMapSize;                                                  // Horizontal index
                     a = v_offset * sin((float)_2Pi*i / (float)BitMapSize);                            // Fundamental frequency...
-                    if (DutyC >= 1) { a += v_offset/3  * sin((float)_2Pi*3*i  / (float)BitMapSize); } // Add  3rd harmonic
-                    if (DutyC >= 2) { a += v_offset/5  * sin((float)_2Pi*5*i  / (float)BitMapSize); } // Add  5th harmonic
-                    if (DutyC >= 3) { a += v_offset/7  * sin((float)_2Pi*7*i  / (float)BitMapSize); } // Add  7th harmonic
-                    if (DutyC >= 4) { a += v_offset/9  * sin((float)_2Pi*9*i  / (float)BitMapSize); } // Add  9th harmonic
-                    if (DutyC >= 5) { a += v_offset/11 * sin((float)_2Pi*11*i / (float)BitMapSize); } // Add 11th harmonic
-                    if (DutyC >= 6) { a += v_offset/13 * sin((float)_2Pi*13*i / (float)BitMapSize); } // Add 13th harmonic
-                    if (DutyC >= 7) { a += v_offset/15 * sin((float)_2Pi*15*i / (float)BitMapSize); } // Add 15th harmonic
-                    if (DutyC >= 8) { a += v_offset/17 * sin((float)_2Pi*17*i / (float)BitMapSize); } // Add 17th harmonic
-                    if (DutyC >= 9) { a += v_offset/19 * sin((float)_2Pi*19*i / (float)BitMapSize); } // Add 19th harmonic
+                    if (Harm >= 1) { a += v_offset/3  * sin((float)_2Pi*3*i  / (float)BitMapSize); }  // Add  3rd harmonic
+                    if (Harm >= 2) { a += v_offset/5  * sin((float)_2Pi*5*i  / (float)BitMapSize); }  // Add  5th harmonic
+                    if (Harm >= 3) { a += v_offset/7  * sin((float)_2Pi*7*i  / (float)BitMapSize); }  // Add  7th harmonic
+                    if (Harm >= 4) { a += v_offset/9  * sin((float)_2Pi*9*i  / (float)BitMapSize); }  // Add  9th harmonic
+                    if (Harm >= 5) { a += v_offset/11 * sin((float)_2Pi*11*i / (float)BitMapSize); }  // Add 11th harmonic
+                    if (Harm >= 6) { a += v_offset/13 * sin((float)_2Pi*13*i / (float)BitMapSize); }  // Add 13th harmonic
+                    if (Harm >= 7) { a += v_offset/15 * sin((float)_2Pi*15*i / (float)BitMapSize); }  // Add 15th harmonic
+                    if (Harm >= 8) { a += v_offset/17 * sin((float)_2Pi*17*i / (float)BitMapSize); }  // Add 17th harmonic
+                    if (Harm >= 9) { a += v_offset/19 * sin((float)_2Pi*19*i / (float)BitMapSize); }  // Add 19th harmonic
                     DAC_data[j] = (int)(a)+v_offset;                                                  // Sum all harmonics and add vertical offset
                 }
                 break;
@@ -281,8 +300,8 @@ public:
     int DAC_chan(char _name, PIO _pio, uint _GPIO) {
         pio = _pio, GPIO = _GPIO, name = _name ;                                // Copy parameters to class vars
         PIOnum = pio_get_index(pio) ;                                           // Print friendly value
-        Funct = _Sine_, Freq = 100, Range = 1, Level = 50, DutyC = 50 ;         // Start-up default values.
-        name == 'A' ? Phase = 0 : Phase = 180 ;                                 // Phase difference between channels
+        Funct = _Sine_, Freq=100, Range=1, Harm=0, Level=50, DutyC=50 ;         // Start-up default values
+        name == 'A' ? Phase=0 : Phase=180 ;                                     // Set Phase difference between channels
         int _offset;
         StateMachine = pio_claim_unused_sm(_pio, true);                         // Find a free state machine on the specified PIO - error if there are none.
         ctrl_chan = dma_claim_unused_channel(true);                             // Find 2 x free DMA channels for the DAC (12 available)
@@ -360,42 +379,47 @@ uint pioNum, StateMachine, Freq, _offset ;
 void SysInfo ( DAC DAC[], blink_forever LED_blinky) {
     // Print system and resource allocation details...
     sprintf(outStr,"\t|-----------------------------------------------------------|\n"
-                   "\t| Resource allocation                                       |\n"
+                   "\t| Resource allocation...                                    |\n"
+                   "\t|   RP2040 Clock: %4dMHz                                   |\n"
                    "\t|-----------------------------|-----------------------------|\n"
                    "\t| LED blinker                 |                             |\n"
                    "\t|-----------------------------|                             |\n"
-                   "\t|   PIO:          %2d          |  Key:                       |\n"
-                   "\t|   SM:           %2d          |   SM = State machine        |\n"
-                   "\t|   GPIO:         %2d          |   BM = Bitmap               |\n"
-                   "\t|   Frequency:    %2dHz        |                             |\n"
+                   "\t|   PIO:           %2d         |                             |\n"
+                   "\t|   State machine: %2d         |                             |\n"
+                   "\t|   GPIO:          %2d         |                             |\n"
+                   "\t|   Frequency:     %2dHz       |                             |\n"
                    "\t|-----------------------------|-----------------------------|\n"
                    "\t| DAC Channel A               | DAC Channel B               |\n"
                    "\t|-----------------------------|-----------------------------|\n"
-                   "\t| Frequency:     %3d          | Frequency:     %3d          |\n"
-                   "\t| Phase:         %3d          | Phase:         %3d          |\n"
-                   "\t| Duty cycle:    %3d          | Duty cycle:    %3d          |\n"
-                   "\t| Divider:     %05d          | Divider:     %05d          |\n"
+                   "\t|   Frequency:     %3d        |   Frequency:     %3d        |\n"
+                   "\t|   Divider:    %10.3f    |   Divider:    %10.3f    |\n"
+                   "\t|   Phase:         %3d        |   Phase:         %3d        |\n"
+                   "\t|   Duty cycle:    %3d        |   Duty cycle:    %3d        |\n"
+                   "\t|   Sine harmonic:   %1d        |   Sine harmonic:   %1d        |\n"
                    "\t|-----------------------------|-----------------------------|\n"
-                   "\t| PIO:             %d          | PIO:             %d          |\n"
-                   "\t| GPIO:          %d-%d          | GPIO:         %d-%d          |\n"
-                   "\t| BM size:  %8d          | BM size:  %8d          |\n"
-                   "\t| BM start: %x          | BM start: %x          |\n"
-                   "\t| SM:              %d          | SM:              %d          |\n"
-                   "\t| Wrap Bottom:    %2x          | Wrap Bottom:    %2x          |\n"
-                   "\t| Wrap Top:       %2x          | Wrap Top:       %2x          |\n"
-                   "\t| DMA ctrl:       %2d          | DMA ctrl:       %2d          |\n"
-                   "\t| DMA data:       %2d          | DMA data:       %2d          |\n"
-                   "\t|-----------------------------|-----------------------------|\n",
+                   "\t|   PIO:             %d        |   PIO:             %d        |\n"
+                   "\t|   State machine:   %d        |   State machine:   %d        |\n"
+                   "\t|   GPIO:         %d->%d        |   GPIO:        %d->%d        |\n"
+                   "\t|  *BM size:  %8d        |  *BM size:  %8d        |\n"
+                   "\t|  *BM start: %x        |  *BM start: %x        |\n"
+                   "\t|   Wrap Bottom:    %2x        |   Wrap Bottom:    %2x        |\n"
+                   "\t|   Wrap Top:       %2x        |   Wrap Top:       %2x        |\n"
+                   "\t|   DMA ctrl:       %2d        |   DMA ctrl:       %2d        |\n"
+                   "\t|   DMA data:       %2d        |   DMA data:       %2d        |\n"
+                   "\t|-----------------------------|-----------------------------|\n"
+                   "\t  *BM = Bit map\n",
+              (int)clock_get_hz(clk_sys)/1000000,
                    LED_blinky.pioNum,    LED_blinky.StateMachine, PICO_DEFAULT_LED_PIN, LED_blinky.Freq,
                    DAC[_A].Freq,                       DAC[_B].Freq,
+                   DAC[_A].DAC_div,                    DAC[_B].DAC_div,
                    DAC[_A].Phase,                      DAC[_B].Phase,
                    DAC[_A].DutyC,                      DAC[_B].DutyC,
-              (int)DAC[_A].DAC_div,               (int)DAC[_B].DAC_div,
+                   DAC[_A].Harm,                       DAC[_B].Harm,
                    DAC[_A].PIOnum,                     DAC[_B].PIOnum,
+                   DAC[_A].StateMachine,               DAC[_B].StateMachine,
                    DAC[_A].GPIO, DAC[_A].GPIO+7,       DAC[_B].GPIO, DAC[_B].GPIO+7,
                    BitMapSize,                         BitMapSize,
              (int)&DAC[_A].DAC_data[0],          (int)&DAC[_B].DAC_data[0],
-                   DAC[_A].StateMachine,               DAC[_B].StateMachine,
                    DAC[_A].SM_WrapBot,                 DAC[_B].SM_WrapBot,
                    DAC[_A].SM_WrapTop,                 DAC[_B].SM_WrapTop, 
                    DAC[_A].ctrl_chan,                  DAC[_B].ctrl_chan,
@@ -447,6 +471,7 @@ static void getLine() {
 }
 
 int main() {
+    set_sys_clock_khz(280000, true);                        // 2 x overclocking gives 1Hz=>999KHz range
     stdio_init_all();
 
 // Set SPI0 at 0.5MHz.
@@ -462,41 +487,41 @@ int main() {
     gpio_set_dir(Level_CS, GPIO_OUT);
     gpio_put(Level_CS, 1);
 
-/* // Makes no noticable difference to R2R output...
+// Makes no noticable difference to R2R output...
     for (int i=0; i<8; i++) {
         gpio_set_slew_rate(i, GPIO_SLEW_RATE_FAST);
         gpio_set_drive_strength(i, GPIO_DRIVE_STRENGTH_12MA);
-    } */
+    }
 
 // Initialise remaining SPI connections...
     gpio_set_dir(PIN_CLK, GPIO_OUT);
     gpio_set_dir(PIN_TX, GPIO_OUT);
 
-    DAC DAC[2];                                                // Array to hold the two DAC channel objects
+    DAC DAC[2];                                                         // Array to hold the two DAC channel objects
 
 // Instantiate objects to control the various State Machines...
 // Note: Both DAC channels need to be on the same PIO to achieve
 //       Atomic restarts for accurate phase sync.
-    DAC[_A].DAC_chan('A',pio1,0);                                     // First  DAC channel object in array - resistor network connected to GPIO0->8
-    DAC[_B].DAC_chan('B',pio1,8);                                     // Second DAC channel object in array - resistor network connected to GPIO8->16
-    blink_forever LED_blinky(pio0);                                   // Onboard LED blinky object
+    DAC[_A].DAC_chan('A',pio1,0);                                       // First  DAC channel object in array - resistor network connected to GPIO0->8
+    DAC[_B].DAC_chan('B',pio1,8);                                       // Second DAC channel object in array - resistor network connected to GPIO8->16
+    blink_forever LED_blinky(pio0);                                     // Onboard LED blinky object
 
-    strcpy(LastCmd,"?") ;                                             // Hitting return will give 'Help'
+    strcpy(LastCmd,"?") ;                                               // Hitting return will give 'Help'
 
-    SPI_Display_Write(0) ;                                            // Zero => SPI display
-    MCP41020_Write(0x3, 50) ;                                         // Both channels -> 50% output level
+    SPI_Display_Write(0) ;                                              // Zero => SPI display
+    MCP41020_Write(0x3, 50) ;                                           // Both channels -> 50% output level
 
-    LED_blinky.Set_Frequency(1);                                      // Flash LED at 1Hz- waiting for USB connection
+    LED_blinky.Set_Frequency(1);                                        // Flash LED at 1Hz- waiting for USB connection
 
-    while (!stdio_usb_connected()) { sleep_ms(100); }                 // Wait for USB connection...
+    while (!stdio_usb_connected()) { sleep_ms(100); }                   // Wait for USB connection...
 
-    LED_blinky.Set_Frequency(10);                                     // Flash LED at 10Hz - USB connected.
-    SPI_Display_Write(DAC[_A].Freq) ;                                 // Frequency => SPI display
+    LED_blinky.Set_Frequency(10);                                       // Flash LED at 10Hz - USB connected.
+    SPI_Display_Write(DAC[_A].Freq) ;                                   // Frequency => SPI display
 
-// Send start-up text to terminal...
-    printf("==============================\n"                         // Version details to terminal    (optional)
-           "WaveForm Generator Version 1.0\n"
-           "==============================\n") ;
+// Send (optional) start-up messages to terminal...
+    printf(VerText) ;                                                   // Version text
+//  printf(HelpText) ;                                                  // Help text
+//  SysInfo(DAC, LED_blinky) ; printf(outStr) ;                         // Resource allocation table
 
 // Atomic Restart - starting all 4 DMA channels simultaneously ensures phase sync between both DAC channels
     dma_start_channel_mask(DAC_channel_mask);
@@ -514,6 +539,7 @@ int main() {
         // One character commands...
         if (strlen(inStr) == 1) {
             if (inStr[0] == '?') sprintf(outStr,HelpText);                              // Help text
+            if (inStr[0] == 'V') sprintf(outStr,VerText);                               // Version text
             if (inStr[0] == 'S') { DAC[_A].StatusString() ; DAC[_B].StatusString() ; }
             if (inStr[0] == 'R') SysInfo(DAC, LED_blinky);
         }
@@ -584,6 +610,20 @@ int main() {
                 if ( Parm[0] > 100 ) Parm[0] = 100;                                     // Hard limit @ 100%
                 if (SelectedChan & 0b01) result = DAC[_A].Set(_Duty_,Parm[0]) ;
                 if (SelectedChan & 0b10) result = DAC[_B].Set(_Duty_,Parm[0]) ;
+            }
+        }
+
+        if ((inStr[1] == 's') & (inStr[2] == 'h')) {                                    // Set Sine Harmonics
+            if (inStr[3] == '+') {                                                      // Bump up and grab result for SPI display...
+                if (SelectedChan & 0b01) result = DAC[_A].Bump(_Harmonic_,_Up) ;
+                if (SelectedChan & 0b10) result = DAC[_B].Bump(_Harmonic_,_Up) ;
+            } else if (inStr[3] == '-') {                                               // Bump down and grab result for SPI display...
+                if (SelectedChan & 0b01) result = DAC[_A].Bump(_Harmonic_,_Down) ;
+                if (SelectedChan & 0b10) result = DAC[_B].Bump(_Harmonic_,_Down) ;
+            } else {                                                                    // Not a bump, so set the absolute value from Parm[0]...
+                if ( Parm[0] > 10 ) Parm[0] = 9;                                        // Hard limit @ 9
+                if (SelectedChan & 0b01) result = DAC[_A].Set(_Harmonic_,Parm[0]) ;
+                if (SelectedChan & 0b10) result = DAC[_B].Set(_Harmonic_,Parm[0]) ;
             }
         }
 
