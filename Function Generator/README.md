@@ -3,8 +3,9 @@
   * Port the clock code from [here](https://www.micro-examples.com/articles/index.php?title=PicOClock)  <-- Changed my mind, going for a full analogue clock face instead
 
 * Features:
-  * Direct Digital Synthesis (DDS) Function Generator 1Hz to 1MHz frequency range.
+  * Direct Digital Synthesis (DDS) Function Generator
   * Dual 8 bit R-2R Digital to Analog converter
+  * 1Hz => 1MHz frequency range.
   * Variable output level (requires MCP41020 dual digital potentiometer with SPI interface)
   * Target device = Pico (also works on Pimoroni PGA2040)
   * External, 3 digit, SPI display
