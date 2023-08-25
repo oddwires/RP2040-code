@@ -1,4 +1,4 @@
-# Analog Clock on a RP2040. #
+# Analog Clock on an RP2040. #
 
 * Features:
   * Direct Digital Synthesis (DDS)
@@ -7,6 +7,8 @@
   * Set time through Putty terminal session over USB port
  
 ![Hardware](https://github.com/oddwires/RP2040/blob/master/Clock/Images/Pico_DAC_bb.jpg)
+
+![Hardware](https://github.com/oddwires/RP2040/blob/master/Clock/Images/IMG_1215.JPG)
 
 * Limitations:
   * USB serial requires Windows (10 or later)
