@@ -12,3 +12,4 @@
 
 * Limitations:
   * USB serial requires Windows (10 or later)
+  * The code is working, but is a cut down version of the Function Generator code. This has resulted in some redundant code + variables that need tidying up.
