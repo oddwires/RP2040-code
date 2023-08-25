@@ -8,3 +8,7 @@
  
 * Limitations:
   * USB serial requires Windows (10 or later)
+ 
+  * 
+![Hardware](https://github.com/oddwires/RP2040/blob/master/Clock/Images/Pico_DAC_bb.jpg)
+
