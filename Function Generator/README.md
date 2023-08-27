@@ -1,6 +1,7 @@
 # Function Generator on a RP2040. #
 * Features:
   * Direct Digital Synthesis (DDS) Function Generator
+  * Serial over USB interface (Putty)
   * Dual 8 bit R-2R Digital to Analog converter
   * 1Hz => 1MHz frequency range.
   * Variable output level (requires MCP41020 dual digital potentiometer with SPI interface)
