@@ -38,7 +38,7 @@ bool Repeating_Timer_Callback(struct repeating_timer *t) {
 
     // Calculate seconds hand...
     i=0, Radius=127 ;                                                       // Radius=Length of seconds hand
-    Angle=90-(Secs*6) ;                                                     // Angle in degrees
+    Angle=270-(Secs*6) ;                                                    // Angle in degrees, shifted 90 degree anti-clockwise
     Radians=Angle*3.14159/180 ;                                             // Angle in radians
     StartX=Radius*cos(Radians)+MidX ;
     StartY=Radius*sin(Radians)+MidY ;
@@ -47,7 +47,7 @@ bool Repeating_Timer_Callback(struct repeating_timer *t) {
                      i++ ; }
     // Calculate minutes hand...
     i=0, Radius=95 ;                                                        // Radius=Length of minutes hand
-    Angle=90-(Mins*6) ;                                                     // Angle in degrees
+    Angle=270-(Mins*6) ;                                                    // Angle in degrees, shifted 90 degree anti-clockwise
     Radians=Angle*3.14159/180 ;                                             // Angle in radians
     StartX=Radius*cos(Radians)+MidX ;
     StartY=Radius*sin(Radians)+MidY ;
@@ -57,9 +57,10 @@ bool Repeating_Timer_Callback(struct repeating_timer *t) {
                      i++ ; }
     // Calculate hours hand...
     i=0, Radius=64 ;                                                        // Radius=Length of hours hand
-    // Note: Hours hand progresses between hours in 5 partial increments, each measuring 12 minutes.
+    // Note: Hours hand progresses between hours in 5 partial increments, each increment measuring 12 minutes.
     //       Each 12 minute increment adds an additional 6 degrees of rotation to the hours hand.
-    Angle=5*(90-(((Hours%12)*6)+(Mins/12)%5)) ;                             // Angle in degrees
+    Angle=5*(270-(((Hours%12)*6)+(Mins/12)%5)) ;                            // Angle in degrees, shifted 90 degree anti-clockwise,
+                                                                            //   and scaled by 5 to provide range 0=>12
     Radians=Angle*3.14159/180 ;                                             // Angle in radians
     StartX=Radius*cos(Radians)+MidX ;
     StartY=Radius*sin(Radians)+MidY ;
@@ -88,7 +89,9 @@ void HlpText (char *outStr) {
     MarginVW[MWidth - 2] = '\0' ;                                            // Calculate padding required for command characters and cursor
     sprintf(outStr,"%s?   - Help\n"
                    "%sV   - Version info\n"
-                   "%sS   - Set time: Notation: HH:MM:SS or HH,MM,SS\n"
+                   "%sX   - Invert X axis\n"
+                   "%sY   - Invert Y axis\n"
+                   "%sT   - Set Time: Notation: HH:MM:SS or HH,MM,SS\n"
                    "%s                HH can be either 12 or 24 hour notation\n"
                    "%s                  e.g. '03:00:00' is the same as '15:00:00'\n"
                    "%s                Delimiter can be either ':' or ','\n"
@@ -99,9 +102,10 @@ void HlpText (char *outStr) {
                    "%s                  e.g. '1:2:3' is the same as '01:02:03'\n"
                    "%s                Trailing parameters can be ommited, and will be set to zero.\n"
                    "%s                  e.g. '12:15' is the same as '12:15:00'\n"
-                   "%s                       '12'    is the same as '12:00:00'\n",
+                   "%s                       '12'    is the same as '12:00:00'\n"
+                   "%sL   - Set Level: Notation: 2 digit percentage 0<=nn<=100\n",
                    MarginVW, MarginFW, MarginFW, MarginFW, MarginFW, MarginFW, MarginFW, MarginFW,
-                   MarginFW, MarginFW, MarginFW, MarginFW, MarginFW, MarginFW, MarginFW) ;
+                   MarginFW, MarginFW, MarginFW, MarginFW, MarginFW, MarginFW, MarginFW, MarginFW, MarginFW) ;
 }
 
 static void getLine(char *inStr) {
@@ -120,6 +124,9 @@ static void getLine(char *inStr) {
 
 int main() {
     char inStr[32], outStr[2000] ;                                          // General purpose input/output buffers
+    bool InvX=false, InvY=false ;                                           // Flags to allow inverted output
+    int outX, outY ;                                                        // Final value to send to DAC
+    uint8_t Level=100 ;                                                     // % scale applied to DAC output level
     set_sys_clock_khz(SysClock*1000, true) ;                                // Set Pico clock speed
     stdio_init_all() ;
 
@@ -157,14 +164,26 @@ int main() {
         for (;;) {                                                          // Continual loop
             // Draw the clock face...
             for (int i=0; i<sizeof(FaceX); i++) {
-                gpio_put_masked(0x00ff,FaceX[i]) ;                          // Write data byte to DAC A
-                gpio_put_masked(0xff00,FaceY[i]<<8) ;                       // Write data byte to DAC B
+                outX=FaceX[i] ;                                             // Default 8 bit output
+                if (!InvX) outX=255-outX ;                                  // Inverted 8 bit output
+                outX=outX*Level/100 ;                                       // Scale the output
+                gpio_put_masked(0x00ff,outX) ;                              // Transfer data to the DAC A
+                outY=FaceY[i] ;                                             // Default 8 bit output
+                if (!InvY) outY=255-outY ;                                  // Inverted 8 bit output
+                outY=outY*Level/100 ;                                       // Scale the output
+                gpio_put_masked(0xff00,outY<<8) ;                           // Transfer data to the DAC B
                 sleep_us(2) ;                                               // Pause for on-screen persistance
             }
             // Draw the clock hands...
             for (i=0; i<192; i++) {                                         // 3 hands @ 64 pixels each = 192
-                gpio_put_masked(0x00ff,HandsX[i]) ;                         // Write data byte to DAC A
-                gpio_put_masked(0xff00,HandsY[i]<<8) ;                      // Write data byte to DAC B
+                outX=HandsX[i] ;                                            // Default 8 bit output
+                if (!InvX) outX=255-outX ;                                  // Inverted 8 bit output
+                outX=outX*Level/100 ;                                       // Scale the output
+                gpio_put_masked(0x00ff,outX) ;                              // Transfer data to the DAC A
+                outY=HandsY[i] ;                                            // Default 8 bit output
+                if (!InvY) outY=255-outY ;                                  // Inverted 8 bit output
+                outY=outY*Level/100 ;                                       // Scale the output
+                gpio_put_masked(0xff00,outY<<8) ;                           // Transfer data to the DAC B
                 sleep_us(2) ;                                               // Pause for on-screen persistance
             }
             // Check for console input...
@@ -174,7 +193,7 @@ int main() {
                 putchar(c) ;                                                // Echo to terminal
                 MarginCount = 2 ;                                           // Reset count and bump for command prompt + input
                 MarginVW[MWidth - MarginCount] = '\0' ;                     // Calculate padding required  for command characters and cursor
-                if ((c=='S') or (c=='s')) {                                 // Set time
+                if ((c=='T') or (c=='t')) {                                 // Set time
                     printf("%sSet time (format HH:MM:SS)\n%s",MarginVW, MarginFW ) ;
                     getLine(inStr) ;                                        // Get the console input
                     Parm[0]=0,  Parm[1]=0,  Parm[2]=0,  Parm[3]=0 ;         // Reset all command line parameters
@@ -189,14 +208,40 @@ int main() {
                     }
                     inStr[0]='\0' ;                                         // Reset input buffer
                     Hours=Parm[0]%24 ; Mins=Parm[1]%60 ; Secs=Parm[2]%60 ;  // Set the time from parameters
-                    
                     printf("\n%sClock set to %02d:%02d:%02d\n>",MarginFW,Hours,Mins,Secs) ;
+                }
+                if ((c=='L') or (c=='l')) {                                 // Set level
+                    printf("%sSet level (percentage format 0<=nn<=100)\n%s",MarginVW, MarginFW ) ;
+                    getLine(inStr) ;                                        // Get the console input
+                    Parm[0]=0,  Parm[1]=0,  Parm[2]=0,  Parm[3]=0 ;         // Reset all command line parameters
+                    i=0, ParmCnt=0 ;                                        // Reset all command line counters
+                    while (i<strlen(inStr) ) {
+                        if ((inStr[i]==':')||(inStr[i]==',')) {             // Next parameter
+                            ParmCnt++ ; }
+                        else if (isdigit(inStr[i])) { 
+                            Parm[ParmCnt] *= 10;                            // Next digit. Bump the existing decimal digits
+                            Parm[ParmCnt] += inStr[i] - '0'; }              // Convert character to integer and add
+                        i++ ;                                               // Next character
+                    }
+                    inStr[0]='\0' ;                                         // Reset input buffer
+                    Level=Parm[0] ;                                         // Set the level from parameter
+                    printf("\n%sLevel set to %02d%%\n>",MarginFW,Level) ;
+                }
+                else if ((c=='x') or (c=='X')) {
+                    InvX = !InvX ;
+                    if (InvX) printf("%sX axis inverted.\n>",MarginVW) ;   // Print current status
+                    else      printf("%sX axis not inverted.\n>",MarginVW) ; 
+                }
+                else if ((c=='y') or (c=='Y')) {
+                    InvY = !InvY ;
+                    if (InvY) printf("%sY axis inverted.\n>",MarginVW) ;   // Print current status
+                    else      printf("%sY axis not inverted.\n>",MarginVW) ; 
                 }
                 else if (c=='?') {
                     HlpText(outStr) ;                                       // Create output string...
                     printf("%s\n>",outStr) ;                                // ... and print it
                 }
-                else if (c=='V') {
+                else if ((c=='v') or (c=='V')) {
                     VerText(outStr) ;                                       // Create output string...
                     printf("%s\n>",outStr) ;                                // ... and print it
                 }
