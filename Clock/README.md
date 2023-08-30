@@ -5,10 +5,12 @@
   * Dual 8 bit R-2R Digital to Analog converter
   * Target device = Pico (also works on Pimoroni PGA2040)
   * Set time through Putty terminal session over USB port
- 
+### Construction... ###
 ![Hardware](https://github.com/oddwires/RP2040/blob/master/Clock/Images/Pico_DAC_bb.jpg)
-
+### Early Low res version on a digital scope... ###
 ![Hardware](https://github.com/oddwires/RP2040/blob/master/Clock/Images/IMG_1215.JPG)
+### Looking so much better with the new clock face on a CRT scope... ###
+![Hardware](https://github.com/oddwires/RP2040/blob/master/Clock/Images/IMG_1222.JPG)
 
 * Supported commands
   * ?   - Help
