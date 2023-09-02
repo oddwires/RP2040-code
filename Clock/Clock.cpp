@@ -93,12 +93,12 @@ bool Repeating_Timer_Callback(struct repeating_timer *t) {
 void VerText (char *outText) {
     // Print version info aligned to current margin settings...
     MarginVW[MWidth] = '\0' ;                                               // Calculate padding required for command characters and cursor
-    sprintf(outText, "%s|-------------------------|\n"
-                     "%s|  Analog Clock Simulator |\n"
-                     "%s|     Version 1.0.0       |\n"
-                     "%s|    25th August 2023     |\n"
-                     "%s|-------------------------|\n", 
-                     MarginVW, MarginFW, MarginFW, MarginFW, MarginFW ) ;
+    sprintf(outText,"%s|----------------------|\n"
+                    "%s|  Oscilloscope Clock  |\n"
+                    "%s|     Version 1.0.0    |\n"
+                    "%s|  1st September 2023  |\n"
+                    "%s|----------------------|\n", 
+                    MarginVW, MarginFW, MarginFW, MarginFW, MarginFW ) ;
 }
 
 void HlpText (char *outStr) {
