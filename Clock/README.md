@@ -1,5 +1,7 @@
 # Analog Clock on an RP2040. #
 
+There is also an asscociated <a href="https://www.instructables.com/Oscilloscope-Clock-on-a-Raspberry-Pi-Pico/" target="_blank" />Instructable</a> detailing the hardware.
+
 https://github.com/oddwires/RP2040-code/assets/3483157/f9f16b66-ea9f-45c7-9ec1-8131fb11000c
 
 ### Features:
