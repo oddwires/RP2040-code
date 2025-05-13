@@ -22,6 +22,8 @@
 
 ![Hardware](https://github.com/oddwires/RP2040/blob/master/Function%20Generator/Images/FunctionGenerator.jpg)
 
+**Current version of hardware (Pico not installed).**
+
 ![Hardware](https://github.com/oddwires/RP2040/blob/master/Function%20Generator/Images/cropped-IMG_E2407.JPG)
 
 **X-Y mode for Analog Clock Simulator on a CRT Oscilloscope...**
