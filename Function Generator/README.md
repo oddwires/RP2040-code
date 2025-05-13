@@ -22,6 +22,8 @@
 
 ![Hardware](https://github.com/oddwires/RP2040/blob/master/Function%20Generator/Images/FunctionGenerator.jpg)
 
+![Hardware](https://github.com/oddwires/RP2040/blob/master/Function%20Generator/Images/cropped-IMG_E2407.JPG)
+
 **X-Y mode for Analog Clock Simulator on a CRT Oscilloscope...**
 
 ![Hardware](https://github.com/oddwires/RP2040/blob/master/Function%20Generator/Images/IMG_E1221.JPG)
