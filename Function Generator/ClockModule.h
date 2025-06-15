@@ -10,3 +10,5 @@ extern int tmp, LEDctr, Parm[], Hours, Mins, Secs;
 extern char MarginVW[], Margin[], inStr[];
 extern void getLine();
 extern struct repeating_timer timer;
+
+bool ClockModule ( DAC DACobj[] );

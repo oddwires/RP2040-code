@@ -54,7 +54,10 @@ target_sources(Function_Generator PRIVATE
                     SPI_Utils.cpp
 )
 
-# Modify the below lines to enable/disable output over UART/USB
+# Control using UART...
+#pico_enable_stdio_uart(Function_Generator 1)
+#pico_enable_stdio_usb(Function_Generator 0)
+# Control using USB...
 pico_enable_stdio_uart(Function_Generator 0)
 pico_enable_stdio_usb(Function_Generator 1)
 

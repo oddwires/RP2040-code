@@ -12,6 +12,7 @@ $tmp = [System.IO.Ports.SerialPort]::getportnames()
 Write-Host  -Ba Black -Fo DarkGray "Available serial ports:" $tmp
 
 $Port = new-Object System.IO.Ports.SerialPort
+$Margin = 10
 
 function InitPort {
     $Port.PortName                  = $SerialPort
@@ -21,8 +22,8 @@ function InitPort {
     $Port.StopBits                  = 1
     $Port.Handshake                 = 'XOnXOff'
     $Port.DTREnable                 = $True
-    $port.NewLine                   = ">"        # Cursor = End of transmition
-    $port.ReadTimeout               = 2000      # 5 sec
+#    $port.NewLine                   = ">"       # Cursor = End of transmition
+    $port.ReadTimeout               = 6000      # 5 sec
     $port.WriteTimeout              = 2000      #  5 sec
 
     Write-Host -Ba Black -Fo DarkGray "Opening Serial Port   :" $Port.portname
@@ -30,31 +31,27 @@ function InitPort {
 }
 
 function SndCmd($cmd) {
-    try {
-        $Port.Write($cmd)
-    }
-    catch [TimeoutException] {
-        Write-Host -Fo Red "`nERROR:  TimeoutException in WriteLine"
-        Write-Error "ERROR:  ${Error}"
-        break
-    }
-    try {
-        $line = $Port.ReadLine()
-        $line = $line -replace ".{1}$"                     # Drop the final LF as it messes up screen formating
-        $line += ">"                                       # Serial newline character gets stripped, so put it back
-        $Command = $line.Substring(0,10)                   # Command = first 10 characters
-        $Response = $line.Substring(10,$line.length-11)    # Response = Remaining characters
-        $Cursor = $line.Substring($line.Length-1)          # Cursor (actually printed on next line)
-           }
-    catch [TimeoutException] {
-        Write-Host -Fo Red "`nERROR:  TimeoutException in ReadLine"
-        Write-Error "ERROR:  ${Error}"
-        break
-    }
-#   printable($line)
-    Write-Host -NoNewline -Ba Black -Fo Green $Command
-    Write-Host -NoNewline -Ba Black -Fo Cyan $Response
-    Write-Host -NoNewline -Ba Black -Fo White $Cursor
+     $Port.Write($cmd)
+     #Write-Host -NoNewline -Ba Black -Fo Yellow $cmd
+     Start-Sleep -Milliseconds 100
+     while ($line = $Port.ReadLine()) {
+         if ($line.startswith(">")) {                       # All commands have a '>' prompt
+            $Command = $line
+            Write-Host -NoNewline -Ba Black -Fo Green $Command`n
+         }
+         else {
+            $command = $(" " * $Margin)
+            $Response = $line.Substring(10,$line.length-11)    # Response = Remaining characters
+            $Cursor = $line.Substring($line.Length-1)          # Cursor (actually printed on next line)
+            Write-Host -NoNewline -Ba Black -Fo Green $Command
+
+            Write-Host -NoNewline -Ba Black -Fo Cyan $Response
+            if (!$line.Contains([char]0x03)) { Write-Host -NoNewline `n }
+            else { Write-Host -Ba Black -Fo Gray (" (End Of Text)") }
+            Write-Host -NoNewline -Ba Black -Fo White $Cursor
+         }
+         if ($line.Contains([char]0x03)) { break; }
+     }
 }
 
 Function Get-FileName($initialDirectory) {  
@@ -94,8 +91,11 @@ function Printable([string] $s) {
      return ([regex]'[^ -~\\]').Replace($s, $Matcher)
 } #end function Printable
 
+cls
+Write-Host (".")`n
 InitPort
 #$FileName = Get-FileName(".\")
+
 
 Write-Host -Fo DarkGray "Opening file          : " $FileName
 
@@ -105,24 +105,28 @@ try {
 # Loop until Ctrl-C press...
     while ($true) { 
         foreach ($line in $FileData) {
-            # Write-Host -Ba Black -Fo Yellow $line
             $Parms = $line.Split(" ")
             If ($Parms[0].ToLower() -eq "pause") {
                 $Period = [int]$Parms[1]                           # Convert to integer
                 $tmp = $line.Substring($line.Length-2).ToLower()   # Last two characters of line
                 Write-Host -NoNewline -Ba Black -Fo White $Cursor
                 if ($tmp -eq "ms") { 
-                    Write-Host -Ba Black -Fo Green "           Pause" $Period "milli-seconds"
+                    Write-Host -Ba Black -Fo Green " Pause" $Period "milli-seconds"
                     Start-sleep -Milliseconds $Period
-                } else { 
-                    Write-Host -Ba Black -Fo Green "           Pause" $Period "seconds"
+                } 
+                else { 
+                    Write-Host -Ba Black -Fo Green  $(" " * $Margin) " Pause" $Period "seconds"
                     Start-sleep $Period 
                 }
+#                Write-Host -NoNewline -Ba Black -Fo White ">"
+            }
+            elseif ($Parms[0].ToLower() -eq "cls") { 
+                cls
                 Write-Host -NoNewline -Ba Black -Fo White ">"
             }
-            elseif ($Parms[0] -eq "#") {
-                Write-Host -Ba Black -Fo Green $line.Substring(2)
-                Write-Host -NoNewline -Ba Black -Fo White ">"
+            elseif ($line[0] -eq "#") {
+                Write-Host -Ba Black -Fo Green $line.substring(1)     # Remove first character
+#                Write-Host -NoNewline -Ba Black -Fo White ">"
             }
             else { SndCmd($line + "`n") }
         }
@@ -130,6 +134,7 @@ try {
 }
 finally {
 # Ctrl-C falls through here...
+    Write-Host -Ba Black -Fo DarkGray "Ctrl-C or Timeout detected."
     Write-Host -Ba Black -Fo DarkGray "Closing Serial Port" $Port.portname
     $Port.Close()
 }

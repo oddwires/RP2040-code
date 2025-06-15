@@ -21,7 +21,8 @@ uint8_t HandsY[192] = {} ;
 
 void HlpTxt(char c);                                                    // Forward deffinition
 
-void ClockModule ( DAC DACobj[] ) {
+bool ClockModule ( DAC DACobj[] )
+{
     char c;
     bool InvX=false, InvY=false ;                                       // Clock display mode flags to allow inverted output
     uint32_t GPIO_mask_X=0x0ff<<DAC_A_Start ;                           // Mask defining which GPIO's connect to the R2R networks
@@ -53,8 +54,6 @@ void ClockModule ( DAC DACobj[] ) {
         gpio_set_dir(DAC_B_Start + i, GPIO_OUT);
     }
 
-    _Result.Txt[0] = '\0' ;                                             // String also used as a flag, so needs to be cleared
-//  while (_Result.Txt[0] == '\0') {                                    // exit on keypress
     while (true) {                                                      // exit on keypress
         float Radians ;
         int outX, outY ;
@@ -127,8 +126,8 @@ void ClockModule ( DAC DACobj[] ) {
                 pio_sm_set_enabled(_PIOnum_,1,true) ;                   // Re-enable State machine 1
                 dma_start_channel_mask(DAC_channel_mask);               // Atomic restart both DAC channels
 
-                sprintf(_Result.Txt,"%c%sQuit clock mode\n",c,MarginVW);// Prevents error message on return
-                return;                                                 // exit
+                printf("%s Exit\n",MarginVW);
+                return true;                                            // Exit
             }
         }
     }
@@ -137,23 +136,20 @@ void ClockModule ( DAC DACobj[] ) {
 void HlpTxt(char c) {
     // Print Help text aligned to current margin settings...
     // Note: Following string requires '%%%%' to print '%'
-    //       HelpText string is copied to _Result.Txt using sprintf - this reduces '%%%%' to '%%'
-    //       _Result.Txt is sent to terminal using printf           - this reduces '%%' to '%'
     strcpy(MarginVW,Margin);                                            // Re-initialise Variable Width margin...
     tmp = strlen(inStr) ;                                               // Get number of command line characters
     if (tmp != 0) tmp ++;                                               // Bump to allow for cursor.
                                                                         // Note: If called at Start-up there will be no input characters
     MarginVW[MWidth - tmp] = '\0' ;                                     // Calculate padding required for command characters and cursor
-    sprintf(_Result.Txt, "%c%sHelp...\n"
-                         "%s%sh/H/?        - Help\n"
-                         "%s%sX            - Invert X-axis\n"
-                         "%s%sY            - Invert Y-axis\n"
-                         "%s%sS            - Set time (format HH:MM:SS)\n"
-                         "%s%sQ            - Quit (Return to Function Generator)\n"
-                         "\nClock>",                                                // Cursor
-                         c, MarginVW, Margin, MarginVW, Margin, MarginVW, Margin,
-                         MarginVW, Margin, MarginVW, Margin, MarginVW ) ;
-    printf(_Result.Txt) ;                                               // Update terminal
+    printf("%c%sHelp...\n"
+           "%s%sh/H/?        - Help\n"
+           "%s%sX            - Invert X-axis\n"
+           "%s%sY            - Invert Y-axis\n"
+           "%s%sS            - Set time (format HH:MM:SS)\n"
+           "%s%sQ            - Quit (Return to Function Generator)\n"
+           "\nClock>",                                                // Cursor
+           c, MarginVW, Margin, MarginVW, Margin, MarginVW, Margin,
+           MarginVW, Margin, MarginVW, Margin, MarginVW ) ;
     inStr[0] = '\0' ;                                                   // Reset input string
-    *_Result.Txt = '\0' ;
+//    *_Result.Txt = '\0' ;
 }

@@ -1,10 +1,10 @@
 #pragma once
 
-//#define NewHardware               // Comment/Uncomment to select active GPIO ports
+#define NewHardware               // Comment/Uncomment to select active GPIO ports
 
 #ifdef NewHardware
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Define GPIO connections for Pico (new hardware)...
+// Define GPIO connections for Pico ** with UART ** ...
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Phase lock: 
 //      Read/Write through serial port does not use DMA channels. This removes most DAC channels jitter at
@@ -12,23 +12,23 @@
 //          1  Hz => 900 KHz - Phase sync stable
 //        900 KHz => 1 MHz   - Phase sync usable - random drifting easily corrected by hitting 'return'
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#define SPI_PORT        spi1                        // Using SPI port 1
+#define SPI_PORT        spi0                        // Using SPI port 0
                                                     // ┌──────────┬───────────────┬─────────────┐────────────────┐
                                                     // │ PGA2040  │ Connection    │ MCP41010    │ Display module │
                                                     // ├──────────┼───────────────┼─────────────┤────────────────┤
 #define PIN_RX          12                          // │ GPIO 12  │ SPI1 RX       │ (unused)    │  (unused)      │
-#define Display_CS      26                          // │ GPIO 17  │ Chip select   │ (unused)    │  SS1 (white)   │
-#define PIN_CLK         10                          // │ GPIO 10  │ SPI1 Clock    │ SCK (Pin 2) │  SCK (blue)    │
-#define PIN_TX          11                          // │ GPIO 11  │ SPI1 TX       │ SI  (Pin 3) │  SDI (green)   │
-#define Level_CS        22                          // │ GPIO 22  │ Chip select   │ CS  (Pin 1) │  (unused)      │
+#define Display_CS      27                          // │ GPIO 27  │ Chip select   │ (unused)    │  SS1 (white)   │
+#define PIN_CLK          2                          // │ GPIO  2  │ SPI1 Clock    │ SCK (Pin 2) │  SCK (blue)    │
+#define PIN_TX           3                          // │ GPIO  3  │ SPI1 TX       │ SI  (Pin 3) │  SDI (green)   │
+#define Level_CS        26                          // │ GPIO 26  │ Chip select   │ CS  (Pin 1) │  (unused)      │
 //                                                     └──────────┴───────────────┴─────────────┘────────────────┘
-#define DAC_A_Start      2                          // First GPIO port used by DAC A
-#define DAC_B_Start     14                          // First GPIO port used by DAC B
+#define DAC_A_Start     15                          // First GPIO port used by DAC A
+#define DAC_B_Start      7                          // First GPIO port used by DAC B
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #else
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Define GPIO connections for Pico (Module)...
+// Define GPIO connections for Pico ** NO UART ** ...
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Phase lock: 
 //      Read/Write through USB serial port requires DMA channel usage. This makes the DAC channels jitter at
@@ -66,12 +66,20 @@
 #define _Harmonic_      10
 #define _PIOnum_        pio0                        // Code will work equally well on either pio0 or pio1
 #define eof            255                          // EOF in stdio.h -is -1, but getchar returns int 255 to avoid blocking
+#define eot              3                          // End Of Text
 #define CR              13
 #define MWidth          12                          // Width of terminal command margin (in columns)
+#define Increment        1
+#define Decrement       -1
 
-// Define clock speed...
+// Define clock speed (select one set from below)...
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//#define SysClock       125                        // System clock     for 0.488 MHz DAC output (Pico default)
-//#define SysClock       250                        // System clock x 2 for 0.977 MHz DAC output
-#define SysClock       280                          // Overclock        for 1.000 MHz DAC output
+//#define SysClock       125                        // System clock @ 125MHz (Pico default)
+//#define MaxFreq     488000                        //  ...for 0.488 MHz DAC output
+//
+//#define SysClock       250                        // System clock x 2
+//#define MaxFreq     977000                        //  ...for 0.977 MHz DAC output
+//
+#define SysClock       280                          // Overclock @ 280MHz...
+#define MaxFreq    1000000                          //  ...for 1.00MHz DAC output
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

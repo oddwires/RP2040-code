@@ -1,5 +1,5 @@
 // Each DAC channel consists of...
-//    BitMap data => DMA => FIFO => State Machine => GPIO pins => R-2-R module
+//    BitMap data => DMA => FIFO => State Machine => GPIO pins => R-2R module
 // Note: The PIO clock dividers are 16-bit integer, 8-bit fractional, with first-order delta-sigma for the fractional divider.
 //       This means the clock divisor can vary between 1 and 65536, in increments of 1/256.
 //       If DAC_div exceeds 2^16 (65,536), the registers will wrap around, and the State Machine clock will be incorrect.
@@ -9,12 +9,13 @@
 #include "DAC_Class.h"
 #include "ClockModule.h"
 
-DAC::DAC(char _name, PIO _pio, uint8_t _GPIO) {
+DAC::DAC(char _name, PIO _pio, uint8_t _GPIO)
+{
 // DAC Constructor
 // Parameters...
 //       _name = Name of this DAC channel instance
 //       _pio = Required PIO channel
-//       _GPIO = Port connecting to the MSB of the R-2-R resistor network.
+//       _GPIO = Port connecting to the MSB of the R-2R resistor network.
     pio = _pio;
     PIOnum = pio_get_index(pio) ;                                           // Printer friendly value
     GPIO = _GPIO ;                                                          // Initialse class value
@@ -105,26 +106,33 @@ char* DAC::StatusString() {
     }
 }
 
-int DAC::Set(int _type, int _val) {
+int DAC::Set(int _type, int _val)
+{
 // Multi-purpose routine to set various DAC operating values.
 // Parameters...
-//      _type = operating value to be set (frequency, phase, level, sine, square, triangle, time)
+//      _type = operating value to be set (frequency, phase, level, sine, square, triangle)
 //      _val  = value for the designated parameter
-    _Result.Val = _val;                                  // Save for SPI display
+//    _Result.Val = _val;                                 // Save for SPI display
+
     switch (_type) {
         case _Freq_:
             Freq  = _val ;                              // Frequency (numeric)
             DACspeed(Freq * Range) ;                    // Update State machine run speed
+            if (Range == 1)       strcpy(Suffix," Hz") ;        // Assign multiplier suffix
+            if (Range == 1000)    strcpy(Suffix,"KHz") ;
+            if (Range == 1000000) strcpy(Suffix,"MHz") ;
+            sprintf(RetStr,"Freq: %3d%s",Freq,Suffix);
             break ;
         case _Phase_:
             Phase  = _val ;                             // Phase shift (0->355 degrees)
             DataCalc() ;                                // Recalc Bitmap and apply new phase value
+            sprintf(RetStr,"Phase: %3d°",Phase);            
             break ;
         case _Level_:
             if (_val > 100) _val = 100 ;                // Limit max val to 100%
             Level = _val ;
             MCP41020_Write(SelectedChan, Level) ;       // Control byte for the MCP42010 just happens to be the same value as the SelectedChan variable
-            StatusString() ;                            // Update the terminal session
+            sprintf(RetStr,"Level: %3d%%%%",Level);
             break ;
         case _Sine_:
             Funct = _Sine_ ;
@@ -142,79 +150,84 @@ int DAC::Set(int _type, int _val) {
             DataCalc() ;
             break ;
     }
-    strcat (_Result.Txt,StatusString());
-
+    NixieVal = _val ;                                   // Result for SPI (Nixie) display
     return 0;
 }
 
-int DAC::Bump(int _type, int _dirn) {
+int DAC::Bump(int _type, int _dirn)
+{
 // Multi-purpose routine to bump various DAC operating values.
 // Parameters...
 //      _type = operating value to be bumped (frequency, phase, level, sine, square, triangle, time)
 //      _dirn = bump direction for the designated parameter (up, down)
     if (_type == _Freq_) {
-        if ((Freq*Range==0) && (_dirn==_Down)) {                // Attempt to bump below lower limit
-            sprintf(RetStr,"Channel %c: Error - Minimum Frequency\n",name);
-            strcat(_Result.Txt, RetStr);
+        if ((Freq*Range == 1) && (_dirn == _Down)) {                // Attempt to bump below lower limit (1Hz)
+            sprintf(RetStr,"Error - Minimum frequency");
             return 0;
-    }
-//             // TBD - remove hardcoded Max frequency            
-    else if ((Freq*Range==1000000) && (_dirn==_Up)) {       // Attempt to bump above upper limit
-            sprintf(RetStr,"Channel %c: Error - Maximum Frequency\n",name);
-            strcat(_Result.Txt, RetStr);
+        }
+        else if ((Freq*Range == MaxFreq) && (_dirn == _Up)) {       // Attempt to bump above upper limit (1MHz)
+            sprintf(RetStr,"Error - Maximum frequency");
             return 0;
-    } else {                                                    // Not at max or min value...
-        Freq += _dirn ;                                         // ... bump
-        if ((Freq == 1000) && (_dirn == _Up)) {                 // Range transition point
-            Freq = 1 ;                                          // Reset count
-            if (Range == 1)         Range = 1000 ;              // either Hz=>KHz
-            else if (Range == 1000) Range = 1000000 ;           // or     KHz=>MHz
+        } else {                                                    // Not at max or min value...
+            Freq += _dirn ;                                         // ... bump
+            if ((Freq == 1000) && (_dirn == _Up)) {                 // Range transition point
+                Freq = 1 ;                                          // Reset count
+                if (Range == 1)         Range = 1000 ;              // either Hz=>KHz
+                else if (Range == 1000) Range = 1000000 ;           // or     KHz=>MHz
+            }
+            if ((Freq==0) && (Range!=1) && (_dirn==_Down)) {        // Range transition point
+                Freq = 999 ;                                        // Reset count
+                if (Range == 1000)    Range = 1 ;                   // either KHz=>Hz
+                else if (Range == 1000000) Range = 1000 ;           // or     MHz=>KHz
+            }
+            DACspeed(Freq * Range) ;
+            if (Range == 1)       strcpy(Suffix," Hz") ;            // Assign multiplier suffix
+            if (Range == 1000)    strcpy(Suffix,"KHz") ;
+            if (Range == 1000000) strcpy(Suffix,"MHz") ;
+            sprintf(RetStr,"Freq: %3d%s",Freq,Suffix);
         }
-        if ((Freq==0) && (Range!=1) && (_dirn==_Down)) {        // Range transition point
-            Freq = 999 ;                                        // Reset count
-            if (Range == 1000)    Range = 1 ;                   // either KHz=>Hz
-            else if (Range == 1000000) Range = 1000 ;           // or     MHz=>KHz
-        }
-        _Result.Val = Freq ;                                    // Grab value for SPI display
-        DACspeed(Freq * Range) ;  }
+        NixieVal = Freq ;                                           // Value for SPI (Nixie) display
     }
     if (_type == _Phase_) {
         Phase += _dirn ;
-        if (Phase == 360)  Phase = 0 ;                  // Top Endwrap
-        if (Phase  < 0  )  Phase = 359 ;                // Bottom Endwrap
-        _Result.Val = Phase ;                           // Grab value for SPI display
-        DataCalc(); }                                   // Update Bitmap data to include new DAC phase
+        if (Phase == 360)  Phase = 0 ;                              // Top Endwrap
+        if (Phase  < 0  )  Phase = 359 ;                            // Bottom Endwrap
+        DataCalc();                                                 // Update Bitmap data to include new DAC phase
+        sprintf(RetStr,"Phase: %3d°",Phase);
+        NixieVal = Phase ;  }                                       // Value for SPI (Nixie) display
     if (_type == _Level_) {
         Level += _dirn ;
-        if (Level > 100) { Level = 0 ;   }              // Top endwrap
-        if (Level < 0  ) { Level = 100 ; }              // Bottom endwrap
-        _Result.Val = Level ;                           // Grab value for SPI display
-        MCP41020_Write(SelectedChan, Level) ;           // Control byte for the MCP42010 just happens to be the same value as the SelectedChan variable
-        StatusString () ; }                             // Update the terminal session
+        if (Level > 100) { Level = 0 ;   }                          // Top endwrap
+        if (Level < 0  ) { Level = 100 ; }                          // Bottom endwrap
+        MCP41020_Write(SelectedChan, Level) ;                       // Control byte for the MCP42010 just happens to be the same value as the SelectedChan variable
+        sprintf(RetStr,"Level: %3d%%%%",Level); 
+        NixieVal = Level ; }                                        // Value for SPI (Nixie) display
     if (_type == _Square_) {
         DutyC += _dirn ;
-        if (DutyC > 100) { DutyC = 0 ;   }              // Top endwrap
-        if (DutyC < 0  ) { DutyC = 100 ; }              // Bottom endwrap
-        _Result.Val = DutyC ;                           // Grab value for SPI display
-        DataCalc(); }                                   // Update Bitmap with new Duty Cycle value
+        if (DutyC > 100) { DutyC = 0 ;   }                          // Top endwrap
+        if (DutyC < 0  ) { DutyC = 100 ; }                          // Bottom endwrap
+        DataCalc();                                                 // Update Bitmap with new Duty Cycle value
+        sprintf(RetStr,"Duty cycle: %2d",DutyC); 
+        NixieVal = DutyC ; }                                        // Value for SPI (Nixie) display
     if (_type == _Triangle_) {
         RiseT += _dirn ;
-        if (RiseT > 100) { RiseT = 0 ;   }              // Top endwrap
-        if (RiseT < 0  ) { RiseT = 100 ; }              // Bottom endwrap
-        _Result.Val = RiseT ;                           // Grab value for SPI display
-        DataCalc(); }                                   // Update Bitmap with new Duty Cycle value
+        if (RiseT > 100) { RiseT = 0 ;   }                          // Top endwrap
+        if (RiseT < 0  ) { RiseT = 100 ; }                          // Bottom endwrap
+        DataCalc();                                                 // Update Bitmap with new Duty Cycle value
+        sprintf(RetStr,"Triangle Rise time: %2d",RiseT);      
+        NixieVal = RiseT ; }                                        // Value for SPI (Nixie) display
     if (_type == _Sine_) {
         Harm += _dirn ;
-        if (Harm > 10) { Harm = 0 ;   }                 // Top endwrap
-        if (Harm < 0 ) { Harm = 9 ;   }                 // Bottom endwrap
-        _Result.Val = Harm ;                            // Grab value for SPI display
-        DataCalc(); }                                   // Update Bitmap with new Sine harmonic value
-    strcat (_Result.Txt,StatusString());
-
+        if (Harm > 10) { Harm = 0 ;   }                             // Top endwrap
+        if (Harm < 0 ) { Harm = 9 ;   }                             // Bottom endwrap
+        DataCalc();                                                 // Update Bitmap with new Sine harmonic value
+        sprintf(RetStr,"Sine Harmonic: %2d",Harm);
+        NixieVal = Harm ; }                                         // Value for SPI (Nixie) display
     return 0;
 }
 
-void DAC::DACspeed(int _frequency) {
+void DAC::DACspeed(int _frequency)
+{
 // If DAC_div exceeds 2^16 (65,536), the registers wrap around, and the State Machine clock will be incorrect.
 // A slow version of the DAC State Machine is used for frequencies below 17Hz, allowing the value of DAC_div to
 // be kept within the working range.
@@ -240,7 +253,8 @@ void DAC::DACspeed(int _frequency) {
     }
 }
 
-void DAC::DataCalc() {
+void DAC::DataCalc()
+{
     // Calculate the bitmap for the various waveform outputs...
     int i, j, v_offset = BitMapSize/2 - 1;                                                        // Shift sine waves up above X axis
     int _phase;
@@ -291,9 +305,11 @@ void DAC::DataCalc() {
     }
 }
 
-// The following function is not really a member of the DAC class, as it operates across the two DAC objects simultaneously. 
+// The following function is not a member of the DAC class, as it operates across the two DAC objects simultaneously. 
 // Code is included here for the purposes of clarity.
-void PhaseLock( DAC DACobj[2] ) {
+
+void PhaseLock( DAC DACobj[2] )
+{
 // Phase lock the two DAC channels...
 //  Parameter...
 //      DACobj[2] = Array containing the two DAC objects.
