@@ -30,3 +30,8 @@
 
 ![Hardware](https://github.com/oddwires/RP2040/blob/master/Function%20Generator/Images/IMG_E1221.JPG)
 
+** Running on a Dual Beam Miniscope **
+
+https://github.com/user-attachments/assets/ead30515-5aff-4a8f-83d4-9d6bc28aa200
+
+
