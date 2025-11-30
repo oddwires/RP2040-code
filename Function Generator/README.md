@@ -32,6 +32,7 @@
 
 ** Running on a Dual Beam Miniscope **
 
-https://github.com/user-attachments/assets/ead30515-5aff-4a8f-83d4-9d6bc28aa200
+https://github.com/user-attachments/assets/5b25d5b2-aba0-4a57-8fcc-9201855d0b29
+
 
 
